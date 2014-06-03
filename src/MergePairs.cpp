@@ -97,7 +97,7 @@ int main(int argc, char *argv[]) {
                 // If the reads are oriented in the same direction, they're from the same strand --- do nothing
                 mergeFn = [](std::pair<header_sequence_qual, header_sequence_qual>& rp) -> void {
                     return;
-                }
+                };
             }
 
 

@@ -66,7 +66,7 @@ if ("${CMAKE_CXX_COMPILER_ID}" MATCHES "GNU")
     set (BOOST_CONFIGURE_TOOLSET "")
     set (BOOST_EXTRA_FLAGS "")
 elseif ("${CMAKE_CXX_COMPILER_ID}" MATCHES "Clang")
-    message(FATAL_ERROR "Currently, the only supported compiler is GCC(>=4.7).  We hope to support Clang soon.")
+    #message(FATAL_ERROR "Currently, the only supported compiler is GCC(>=4.7).  We hope to support Clang soon.")
     set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -stdlib=libc++")
     set (BOOST_CONFIGURE_TOOLSET "--with-toolset=clang")
     set (BOOST_EXTRA_FLAGS toolset=clang cxxflags="-stdlib=libc++"  linkflags="-stdlib=libc++")
@@ -123,11 +123,11 @@ elseif(FETCH_BOOST)
     message("==================================================================")
     ExternalProject_Add(libboost
         DOWNLOAD_DIR ${CMAKE_CURRENT_SOURCE_DIR}/external
-        URL http://www.cs.cmu.edu/~robp/files/boost-1.54.0.tar.gz
-        SOURCE_DIR ${CMAKE_CURRENT_SOURCE_DIR}/external/boost_1_54_0
+        URL http://en.sourceforge.jp/frs/g_redir.php?m=jaist&f=%2Fboost%2Fboost%2F1.55.0%2Fboost_1_55_0.tar.gz
+        SOURCE_DIR ${CMAKE_CURRENT_SOURCE_DIR}/external/boost_1_55_0
         INSTALL_DIR ${CMAKE_CURRENT_SOURCE_DIR}/external/install
-        CONFIGURE_COMMAND ${CMAKE_CURRENT_SOURCE_DIR}/external/boost_1_54_0/bootstrap.sh ${BOOST_CONFIGURE_TOOLSET} --prefix=<INSTALL_DIR>
-        BUILD_COMMAND ${CMAKE_CURRENT_SOURCE_DIR}/external/boost_1_54_0/b2 ${BOOST_EXTRA_FLAGS} install
+        CONFIGURE_COMMAND ${CMAKE_CURRENT_SOURCE_DIR}/external/boost_1_55_0/bootstrap.sh ${BOOST_CONFIGURE_TOOLSET} --prefix=<INSTALL_DIR>
+        BUILD_COMMAND ${CMAKE_CURRENT_SOURCE_DIR}/external/boost_1_55_0/b2 ${BOOST_EXTRA_FLAGS} install
         BUILD_IN_SOURCE 1
         INSTALL_COMMAND ""
     )
@@ -169,7 +169,7 @@ if (BOOST_RECONFIGURE)
     set(CMAKE_PREFIX_PATH ${CMAKE_CURRENT_SOURCE_DIR}/external/install)
     set(Boost_INCLUDE_DIRS ${CMAKE_CURRENT_SOURCE_DIR}/external/install/include)
     set(Boost_LIBRARY_DIRS ${CMAKE_CURRENT_SOURCE_DIR}/external/install/lib)
-    find_package(Boost 1.54.0 COMPONENTS iostreams filesystem system thread timer program_options serialization)
+    find_package(Boost 1.55.0 COMPONENTS iostreams filesystem system thread timer program_options serialization)
 endif()
 
 

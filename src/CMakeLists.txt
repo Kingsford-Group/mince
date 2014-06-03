@@ -60,7 +60,6 @@ target_link_libraries(mince
     ${ZLIB_LIBRARY} 
     jellyfish-2.0 
     pthread 
-    gomp
     m
     ${TBB_LIBRARIES}
     ${LOGGING_LIBS}
@@ -73,7 +72,6 @@ target_link_libraries(canonicalize
     ${ZLIB_LIBRARY} 
     jellyfish-2.0 
     pthread 
-    gomp
     m
     ${TBB_LIBRARIES}
     ${LOGGING_LIBS}
@@ -86,7 +84,6 @@ target_link_libraries(mergepairs
     ${ZLIB_LIBRARY} 
     jellyfish-2.0 
     pthread 
-    gomp
     m
     ${TBB_LIBRARIES}
     ${LOGGING_LIBS}
