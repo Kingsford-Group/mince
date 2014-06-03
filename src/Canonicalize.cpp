@@ -61,7 +61,7 @@ Canonicalize
       po::notify(vm);
 
 
-      const char* input[] = { vm["input"].as<string>().c_str() };
+      char* input[] = { const_cast<char*>(vm["input"].as<string>().c_str()) };
 
       stream_manager  streams(input, input + 1, concurrent_file);
       sequence_parser parser(4 * nb_threads, max_read_group, concurrent_file, streams);

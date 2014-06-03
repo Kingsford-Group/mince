@@ -15,7 +15,7 @@
 
 namespace mince {
 namespace utils {
-    std::string twoBitDecode(uint8_t* read, size_t readLength) {
+    std::string twoBitDecode(const uint8_t* read, size_t readLength) {
         boost::dynamic_bitset<uint8_t> bitmap(2*readLength, 0);
         size_t effectiveReadLength = bitmap.num_blocks();
         boost::from_block_range(read, read + effectiveReadLength, bitmap);

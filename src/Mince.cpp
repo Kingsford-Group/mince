@@ -102,7 +102,7 @@ void decode(std::string& ifname, std::string& ofname) {
             const char* read = reads[subBucketCount].c_str();
             uint32_t offset = offsets[subBucketCount];
 
-            std::string s(mince::utils::twoBitDecode(read, readLength - kl));
+            std::string s(mince::utils::twoBitDecode(reinterpret_cast<const uint8_t*>(read), readLength - kl));
             std::string recon = unpermute(s, bucketString, offset);
             ofile << ">" << i << "\n" << recon << std::endl;
             /*
@@ -479,7 +479,7 @@ Mince
           std::exit(0);
       }
 
-      const char* input[] = { vm["input"].as<string>().c_str() };
+      char* input[] = { const_cast<char*>(vm["input"].as<string>().c_str()) };
 
       stream_manager  streams(input, input + 1, concurrent_file);
       sequence_parser parser(4 * nb_threads, max_read_group, concurrent_file, streams);
