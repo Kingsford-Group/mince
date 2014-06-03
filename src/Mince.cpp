@@ -27,6 +27,7 @@
 
 typedef jellyfish::stream_manager<char**>                stream_manager;
 typedef jellyfish::whole_sequence_parser<stream_manager> sequence_parser;
+
 enum Direction { FORWARD, REVERSE };
 
 struct CountList {
@@ -37,6 +38,16 @@ struct CountList {
 using CountMap = tbb::concurrent_unordered_map<uint32_t, uint32_t>;
 using my_mer = jellyfish::mer_dna_ns::mer_base_static<uint64_t, 1>;
 using MapT = std::map<my_mer, std::vector<std::tuple<std::string, uint8_t>>>;
+
+std::string unpermute(std::string& permS, std::string& key, size_t offset) {
+    size_t l = permS.length();
+    return permS.substr(l - offset) + key + permS.substr(0, l - offset);
+}
+
+
+std::string permute(std::string& s, size_t offset, size_t kl) {
+    return s.substr(offset + kl) + s.substr(0, offset);
+}
 
 void decode(std::string& ifname, std::string& ofname) {
     std::ifstream ifile;
@@ -80,13 +91,21 @@ void decode(std::string& ifname, std::string& ofname) {
         for (subBucketCount = 0; subBucketCount < subBucketSize; ++subBucketCount) {
             ifile.read(reinterpret_cast<char*>(&offsets[subBucketCount]), sizeof(uint8_t));
         }
+        // Transform offset deltas into absolute offsets
+        uint8_t base = offsets.front();
+        for (size_t i = 1; i < subBucketSize; ++i) {
+            offsets[i] = base + offsets[i];
+            base = offsets[i];
+        }
 
         for (subBucketCount = 0; subBucketCount < subBucketSize; ++subBucketCount) {
             const char* read = reads[subBucketCount].c_str();
             uint32_t offset = offsets[subBucketCount];
 
-            size_t newOffset = readLength - kl - offset;
             std::string s(mince::utils::twoBitDecode(read, readLength - kl));
+            std::string recon = unpermute(s, bucketString, offset);
+            ofile << ">" << i << "\n" << recon << std::endl;
+            /*
             if (offset == 0) {
                 std::string recon = bucketString + s;
                 ofile << ">" << i << "\n" << recon << std::endl;
@@ -100,6 +119,7 @@ void decode(std::string& ifname, std::string& ofname) {
                 //std::cerr << "B recon.size() " << recon.size() << "\n";
                 ofile << ">" << i << "\n" << recon << std::endl;
             }
+            */
             ++i;
             if (i % 100000 == 0) {
                 std::cerr << "\r\rwrote read " << i;
@@ -114,134 +134,163 @@ void decode(std::string& ifname, std::string& ofname) {
     ofile.close();
 }
 
-// To use the parser in the following, we get "jobs" until none is
-// available. A job behaves like a pointer to the type
-// jellyfish::sequence_list (see whole_sequence_parser.hpp).
 template <typename MerT>
 void bucketReads(sequence_parser* parser, std::atomic<uint64_t>* total,
-               std::atomic<uint64_t>& totReads,
-               MapT& buckets,
-               CountMap& countMap,
-               uint32_t bucketStringLength) {
-  uint64_t count = 0;
-  unsigned int kl{bucketStringLength};
-  unsigned int cmlen{0};
+        std::atomic<uint64_t>& totReads,
+        MapT& buckets,
+        CountMap& countMap,
+        uint32_t bucketStringLength) {
 
-  //unsigned int kl{15};
-  //using my_mer = jellyfish::mer_dna_ns::mer_base_static<uint64_t, 1>;
-  //my_mer::k(kl);
+    uint64_t count = 0;
+    unsigned int kl{bucketStringLength};
+    unsigned int cmlen{0};
 
-  //std::map<MerT, std::vector<std::tuple<std::string, size_t>>> buckets;
-  while(true) {
-      sequence_parser::job j(*parser); // Get a job from the parser: a bunch of read (at most max_read_group)
-      if(j.is_empty()) break;          // If got nothing, quit
+    while(true) {
+        sequence_parser::job j(*parser); // Get a job from the parser: a bunch of read (at most max_read_group)
+        if(j.is_empty()) break;          // If got nothing, quit
 
-      for(size_t i = 0; i < j->nb_filled; ++i) { // For all the read we got
-          if (totReads++ % 1000000 == 0) {
-              std::cerr << "\r\rprocessed " << totReads << " reads";
-          }
-          std::string s(j->data[i].seq);
+        for(size_t i = 0; i < j->nb_filled; ++i) { // For all the read we got
+            if (totReads++ % 1000000 == 0) {
+                std::cerr << "\r\rprocessed " << totReads << " reads";
+            }
+            std::string s(j->data[i].seq);
 
-          count += s.size();        // Add up the size of the sequence
+            count += s.size();        // Add up the size of the sequence
 
-          cmlen = 0;
-          MerT mer(kl);
-          MerT minmer(kl);
-          MerT rmer(kl);
-          minmer.polyT();
-          mer.polyT();
-          rmer.polyT();
+            cmlen = 0;
+            MerT mer(kl);
+            MerT rmer(kl);
+            MerT minmer(kl);
+            mer.polyT();
+            rmer.polyT();
+            minmer.polyT();
 
-          size_t readLength{s.length()};
-          std::map<uint32_t, std::tuple<uint8_t, Direction>> merOffsetMap;
-          size_t offset{0};
-          size_t firstOffset{offset};
-          while (offset < s.size()) {
-              // Get the code for the next base
-              int c = jellyfish::mer_dna::code(s[offset]);
+            size_t readLength{s.length()};
+            std::map<uint32_t, std::tuple<uint8_t, Direction>> merOffsetMap;
 
-              // If it's not a valid DNA code
-              if (jellyfish::mer_dna::not_dna(c)) {
-                  // Switch it to an 'A'
-                  c = jellyfish::mer_dna::code('A');
-                  // Mark it as 'N' in the string (will be changed to 'A' later)
-                  s[offset] = 'N';
-                  mer.shift_left(c);
-                  rmer.shift_right(c);
-              } else { // Otherwise, base is legit
-                  mer.shift_left(c);
-                  rmer.shift_right(jellyfish::mer_dna::complement(c));
-              }
+            size_t offset{0};
+            size_t roffset{readLength};
+            size_t firstOffset{offset};
+            while (offset < s.size()) {
+                // Get the code for the next base
+                int c = jellyfish::mer_dna::code(s[offset]);
 
-              // If we've read a full k-mer
-              if (++cmlen >= kl) {
-                  cmlen = kl;
+                // If it's not a valid DNA code
+                if (jellyfish::mer_dna::not_dna(c)) {
+                    // Switch it to an 'A' in the mer
+                    c = jellyfish::mer_dna::code('A');
+                    // Mark it as 'N' in the string (will be changed to 'A' later)
+                    s[offset] = 'N';
+                    mer.shift_left(c);
+                    rmer.shift_right(c);
+                } else { // Otherwise, base is legit
+                    mer.shift_left(c);
+                    rmer.shift_right(jellyfish::mer_dna::complement(c));
+                }
 
-                  auto key = mer.get_bits(0, 2*kl);
-                  auto rkey = rmer.get_bits(0, 2*kl);
+                ++offset;
+                --roffset;
+                // If we've read a full k-mer
+                if (++cmlen >= kl) {
+                    cmlen = kl;
 
-                  auto it = merOffsetMap.find(key);
-                  if (it == merOffsetMap.end()) {
-                      merOffsetMap[key] = std::make_tuple(offset - (kl - 1), Direction::FORWARD);
-                  }
+                    auto key = mer.get_bits(0, 2*kl);
+                    auto rkey = rmer.get_bits(0, 2*kl);
 
-                  it = merOffsetMap.find(rkey);
-                  if (it == merOffsetMap.end()) {
-                      merOffsetMap[rkey] = std::make_tuple(readLength - offset - 1, Direction::REVERSE);
-                  }
-              }
-              ++offset;
-          }
+                    // If mer hasn't been seen yet, then record it
+                    auto it = merOffsetMap.find(key);
+                    if (it == merOffsetMap.end()) {
+                        merOffsetMap[key] = std::make_tuple(offset - kl, Direction::FORWARD);
+                    }
 
-          // Decide the heaviest bucket
-          uint32_t maxBucketKey{merOffsetMap.begin()->first};
-          uint32_t maxBucketValue{0};
-          Direction maxBucketDirection{std::get<1>(merOffsetMap.begin()->second)};
-          std::atomic<uint32_t> count;
-          for (auto& kv : merOffsetMap) {
-              auto cit = countMap.find(kv.first);
-              if (cit != countMap.end() and cit->second > maxBucketValue) {
-                  maxBucketValue = cit->second;
-                  maxBucketDirection = std::get<1>(kv.second);
-                  maxBucketKey = kv.first;
-              }
-          }
+                    // If rmer hasn't been seen yet, then record it
+                    it = merOffsetMap.find(rkey);
+                    if (it == merOffsetMap.end()) {
+                        merOffsetMap[rkey] = std::make_tuple(roffset, Direction::REVERSE);
+                    }
 
-          // If the heaviest bucket contains the RC mer,
-          // then RC the read
-          if (maxBucketDirection == Direction::REVERSE) {
-              mince::utils::reverseComplement(s);
-          }
-          // Increment the count of the assigned bucket
-          countMap[maxBucketKey]++;
+                }
+            }
 
-          // Encode the read accounting for the shared string
-          minmer.set_bits(0, 2*kl, maxBucketKey);
-          // The first appearance of the key in the read
-          firstOffset = std::get<0>(merOffsetMap[maxBucketKey]);
+            // Decide the heaviest bucket --- this is where the read will be placed
+            uint32_t maxBucketKey{merOffsetMap.begin()->first};
+            uint32_t maxBucketValue{0};
+            Direction maxBucketDirection{std::get<1>(merOffsetMap.begin()->second)};
+            std::atomic<uint32_t> count;
+            // Iterate over all k-mers and reverse complement k-mers
+            for (auto& kv : merOffsetMap) {
+                auto cit = countMap.find(kv.first);
+                // If the bucket for this key is the heaviest so far
+                // then it becomes the new bucket key.
+                if (cit != countMap.end() and cit->second > maxBucketValue) {
+                    maxBucketValue = cit->second;
+                    maxBucketDirection = std::get<1>(kv.second);
+                    maxBucketKey = kv.first;
+                }
+            }
 
-          std::replace(s.begin(), s.end(), 'N', 'A');
-          // If the first appearance isn't at the end if the read
-          if (firstOffset + kl < s.size()) {
-              // orig: x . key . y
-              // new : y . x
-              std::string reord(s.substr(firstOffset + kl) + s.substr(0, firstOffset));
+            // If the heaviest bucket contains the RC mer,
+            // then RC the read
+            if (maxBucketDirection == Direction::REVERSE) {
+                mince::utils::reverseComplement(s);
+            }
+            // Increment the count of the assigned bucket
+            countMap[maxBucketKey]++;
 
-              if (s.substr(firstOffset, kl) != minmer.to_str()) {
-                  std::cerr << "A string contains " << s.substr(firstOffset, kl) << ", but mer is " << minmer.to_str() << ", read = " << s << ", offset = " << firstOffset << "\n";
-                  std::cerr << "read is in the " << ((maxBucketDirection == Direction::FORWARD) ? "forward" : "reverse") << " direction\n";
-              }
-              // Put the reordered string, offset tuple in the bucket
-              buckets[minmer].push_back(make_tuple(reord, firstOffset));
-          } else { // if the first appearance is at the end of the string, then the 'y' substring is empty
-              buckets[minmer].push_back(make_tuple(s.substr(0, firstOffset), firstOffset));
-              if (s.substr(firstOffset, kl) != minmer.to_str()) {
-                  std::cerr << "B string contains " << s.substr(firstOffset, kl) << ", but mer is " << minmer.to_str() << ", read = " << s << ", offset = " << firstOffset << "\n";
-                  std::cerr << "read is in the " << ((maxBucketDirection == Direction::FORWARD) ? "forward" : "reverse") << " direction\n";
-              }
-          }
-      } // for all of the reads in this job
-  } // for all jobs of this thread
+            // Encode the read accounting for the shared string
+            minmer.set_bits(0, 2*kl, maxBucketKey);
+            // The first appearance of the key in the read
+            firstOffset = std::get<0>(merOffsetMap[maxBucketKey]);
+
+            std::replace(s.begin(), s.end(), 'N', 'A');
+            // orig: x . key . y
+            // new : y . x
+            std::string reord = permute(s, firstOffset, kl);
+
+            std::string kstr = minmer.to_str();
+            if ( s != unpermute(reord, kstr, firstOffset)) {
+                std::cerr << "ERROR!!! unpermute( " << reord << ", " << kstr << ", " << offset << ") != " << s << "\n";
+            }
+            if (s.substr(firstOffset, kl) != minmer.to_str()) {
+                std::cerr << "A string contains " << s.substr(firstOffset, kl) << ", but mer is " << minmer.to_str() << ", read = " << s << ", offset = " << firstOffset << "\n";
+                std::cerr << "read is in the " << ((maxBucketDirection == Direction::FORWARD) ? "forward" : "reverse") << " direction\n";
+            }
+            // Put the reordered string, offset tuple in the bucket
+            buckets[minmer].push_back(make_tuple(reord, firstOffset));
+            /*
+            // If the first appearance isn't at the end if the read
+            if (firstOffset + kl < s.size()) {
+                // orig: x . key . y
+                // new : y . x
+                std::string reord = permute(s, firstOffset, kl);
+
+                std::string kstr = minmer.to_str();
+                if ( s != unpermute(reord, kstr, firstOffset)) {
+                    std::cerr << "ERROR!!! unpermute( " << reord << ", " << kstr << ", " << offset << ") != " << s << "\n";
+                }
+                if (s.substr(firstOffset, kl) != minmer.to_str()) {
+                    std::cerr << "A string contains " << s.substr(firstOffset, kl) << ", but mer is " << minmer.to_str() << ", read = " << s << ", offset = " << firstOffset << "\n";
+                    std::cerr << "read is in the " << ((maxBucketDirection == Direction::FORWARD) ? "forward" : "reverse") << " direction\n";
+                }
+                // Put the reordered string, offset tuple in the bucket
+                buckets[minmer].push_back(make_tuple(reord, firstOffset));
+            } else { // if the first appearance is at the end of the string, then the 'y' substring is empty
+                std::string reord = permute(s, firstOffset, kl);
+
+                std::string kstr = minmer.to_str();
+                if ( s != unpermute(reord, kstr, firstOffset)) {
+                    std::cerr << "ERROR!!! unpermute( " << reord << ", " << kstr << ", " << offset << ") != " << s << "\n";
+                }
+
+                buckets[minmer].push_back(make_tuple(reord, firstOffset));
+                if (s.substr(firstOffset, kl) != minmer.to_str()) {
+                    std::cerr << "B string contains " << s.substr(firstOffset, kl) << ", but mer is " << minmer.to_str() << ", read = " << s << ", offset = " << firstOffset << "\n";
+                    std::cerr << "read is in the " << ((maxBucketDirection == Direction::FORWARD) ? "forward" : "reverse") << " direction\n";
+                }
+            }
+            */
+        } // for all of the reads in this job
+    } // for all jobs of this thread
 }
 
 void reassignOnsies(
@@ -279,6 +328,7 @@ void reassignOnsies(
             mer.shift_left(ca);
             rmer.shift_right(jellyfish::mer_dna::complement(ca));
 
+            ++offset;
             if (++cmlen >= kl) {
                 cmlen = kl;
                 auto key = mer.get_bits(0, 2*kl);
@@ -286,18 +336,18 @@ void reassignOnsies(
 
                 auto it = merOffsetMap.find(key);
                 if (it == merOffsetMap.end()) {
-                    merOffsetMap[key] = std::make_tuple(offset - (kl - 1), Direction::FORWARD);
-                    if (s.substr(offset - (kl - 1), kl) != mer.to_str()) {
-                        std::cerr << "putting " << mer.to_str() << " into the map, but I really have " << s.substr(offset - (kl-1), kl) << "\n";
+                    merOffsetMap[key] = std::make_tuple(offset - kl, Direction::FORWARD);
+                    if (s.substr(offset - kl, kl) != mer.to_str()) {
+                        std::cerr << "putting " << mer.to_str() << " into the map, but I really have " << s.substr(offset - kl, kl) << "\n";
                     }
                 }
+                /*
                 it = merOffsetMap.find(rkey);
                 if (it == merOffsetMap.end()) {
                     merOffsetMap[rkey] = std::make_tuple(readLength - offset - 1, Direction::REVERSE);
                 }
-
+                */
             }
-            ++offset;
         }
 
         uint32_t maxBucketKey{merOffsetMap.begin()->first};
@@ -321,6 +371,16 @@ void reassignOnsies(
         minmer.set_bits(0, 2*kl, maxBucketKey);
         firstOffset = std::get<0>(merOffsetMap[maxBucketKey]);
 
+        std::string reord = permute(s, firstOffset, kl);
+
+        std::string kstr = minmer.to_str();
+        if ( s != unpermute(reord, kstr, firstOffset)) {
+            std::cerr << "ERROR!!! unpermute( " << reord << ", " << kstr << ", " << offset << ") != " << s << "\n";
+        }
+
+        buckets[minmer].push_back(std::make_tuple(reord, firstOffset));
+
+        /*
         if (firstOffset + kl < s.size()) {
             std::string reord(s.substr(firstOffset + kl) + s.substr(0, firstOffset));
             if (s.substr(firstOffset, kl) != minmer.to_str()) {
@@ -336,7 +396,7 @@ void reassignOnsies(
                 std::cerr << "read is in the " << ((maxBucketDirection == Direction::FORWARD) ? "forward" : "reverse") << " direction\n";
             }
         }
-
+        */
 
 
     }
@@ -498,29 +558,18 @@ Mince
           if (isOnsie and combined.size() == 1) {
               // Recover the original string
               size_t offset = std::get<2>(combined[0]);
-              size_t newOffset = readLength - kl - offset;
               // The string on which this read was originally bucketed
               my_mer bucketMer = std::get<0>(combined[0]);
               auto bucketString = bucketMer.to_str();
 
               // The split / swapped string
               std::string s(std::get<1>(combined[0]));
-              std::string recon;
+              std::string recon = unpermute(s, bucketString, offset);
 
-              // Decode the split / swapped string to recover the original
-              if (offset == 0) {
-                  recon = bucketString + s;
-              }
-              else if (offset < s.size()) {
-                  recon = s.substr(newOffset) + bucketString + s.substr(0, newOffset);
-              } else {
-                  recon = s + bucketString;
-              }
               // Push back the original key and the reconstructed string
-              //onsies.push_back(std::forward_as_tuple(k, recon));
+              onsies.push_back(std::forward_as_tuple(k, recon));
           }
       }
-
 
       // For all onsies
       for (auto& kr : onsies) {
@@ -560,7 +609,6 @@ Mince
       std::cerr << "now there are " << newOnsies << " onsies\n";
       std::cerr << "rebucketed " << newTotal << " reads\n";
 
-
       for (auto& k : keys ) {
           //for (auto& kv : buckets) {
           std::vector<std::tuple<std::string, size_t>> reads;
@@ -576,13 +624,6 @@ Mince
               }
           }
 
-
-          /*
-             if (reads.size() > 2) {
-             approxTSPReorder(reads);
-             }
-             */
-
           std::sort(reads.begin(), reads.end(),
                   [&](const std::tuple<std::string, size_t>& a, const std::tuple<std::string, size_t>& b) -> bool {
                   int cmp = std::get<1>(a) - std::get<1>(b);
@@ -593,11 +634,6 @@ Mince
                   }
 
                   });
-          /*
-             if (reads.size() > 100) {
-             subBucket(reads);
-             }
-             */
 
           ++bnum;
           if (bnum % 100 == 0) {
