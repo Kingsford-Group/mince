@@ -66,10 +66,12 @@ if ("${CMAKE_CXX_COMPILER_ID}" MATCHES "GNU")
     set (BOOST_CONFIGURE_TOOLSET "")
     set (BOOST_EXTRA_FLAGS "")
 elseif ("${CMAKE_CXX_COMPILER_ID}" MATCHES "Clang")
-    #message(FATAL_ERROR "Currently, the only supported compiler is GCC(>=4.7).  We hope to support Clang soon.")
-    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -stdlib=libc++")
+    # On OSX, if we compile with clang, we want to use libc++ instead of libstdc++
+    if (APPLE)
+        set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -stdlib=libc++")
+        set (BOOST_EXTRA_FLAGS toolset=clang cxxflags="-stdlib=libc++"  linkflags="-stdlib=libc++")
+    endif()
     set (BOOST_CONFIGURE_TOOLSET "--with-toolset=clang")
-    set (BOOST_EXTRA_FLAGS toolset=clang cxxflags="-stdlib=libc++"  linkflags="-stdlib=libc++")
 else ()
     message(FATAL_ERROR "Your C++ compiler does not support C++11.")
 endif ()
@@ -223,18 +225,7 @@ if(NOT TBB_FOUND)
 set(TBB_WILL_RECONFIGURE TRUE)
 # Set the appropriate compiler
 if ("${CMAKE_CXX_COMPILER_ID}" MATCHES "Clang")
-
     set(TBB_COMPILER "clang")
-    ##
-    # On OSX, tbb currently has a linker bug so we have to patch up the following file
-    ##
-   if ("${CMAKE_SYSTEM_NAME}" MATCHES "Darwin")
-    set(TBB_LINK_SYMBOLS "${CMAKE_CURRENT_SOURCE_DIR}/external/tbb41_20130314oss/src/tbb/mac64-tbb-export.lst")
-    set(TBB_PATCH_STEP awk "!/__TBB_SYMBOL\( _ZTVN3tbb13tbb_exceptionE \)/" ${TBB_LINK_SYMBOLS} > ${CMAKE_CURRENT_SOURCE_DIR}/external/tbb41_20130314oss/tmplnk && mv ${CMAKE_CURRENT_SOURCE_DIR}/external/tbb41_20130314oss/tmplnk ${TBB_LINK_SYMBOLS})
-   else("${CMAKE_SYSTEM_NAME}" MATCHES "Darwin")
-    set(TBB_PATCH_STEP "")
-   endif("${CMAKE_SYSTEM_NAME}" MATCHES "Darwin")
-
 else()
 
     set(TBB_COMPILER "gcc")
@@ -244,14 +235,14 @@ endif()
 message("Build system will fetch and build Intel Threading Building Blocks")
 message("==================================================================")
 # These are useful for the custom install step we'll do later
-set(TBB_SOURCE_DIR ${CMAKE_CURRENT_SOURCE_DIR}/external/tbb41_20130314oss)
+set(TBB_SOURCE_DIR ${CMAKE_CURRENT_SOURCE_DIR}/external/tbb42_20140416oss_src)
 set(TBB_INSTALL_DIR ${CMAKE_CURRENT_SOURCE_DIR}/external/install)
 ExternalProject_Add(libtbb
 	DOWNLOAD_DIR ${CMAKE_CURRENT_SOURCE_DIR}/external
-	URL http://threadingbuildingblocks.org/sites/default/files/software_releases/source/tbb41_20130314oss_src.tgz
-    SOURCE_DIR ${CMAKE_CURRENT_SOURCE_DIR}/external/tbb41_20130314oss
+    URL http://www.threadingbuildingblocks.org/sites/default/files/software_releases/source/tbb42_20140416oss_src.tgz
+    SOURCE_DIR ${CMAKE_CURRENT_SOURCE_DIR}/external/tbb42_20140416oss_src
     INSTALL_DIR ${CMAKE_CURRENT_SOURCE_DIR}/external/install
-    PATCH_COMMAND "${TBB_PATCH_STEP}"
+    #PATCH_COMMAND "${TBB_PATCH_STEP}"
     CONFIGURE_COMMAND ""
     BUILD_COMMAND make compiler=${TBB_COMPILER} cfg=release tbb_build_prefix=LIBS
     INSTALL_COMMAND sh -c "cp ${TBB_SOURCE_DIR}/build/LIBS_release/*.${SHARED_LIB_EXTENSION}* ${TBB_INSTALL_DIR}/lib && cp -r ${TBB_SOURCE_DIR}/include/* ${TBB_INSTALL_DIR}/include"
