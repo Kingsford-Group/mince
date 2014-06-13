@@ -121,7 +121,10 @@ int main(int argc, char *argv[]) {
             size_t totReads{0};
             while(true) {
                 pair_parser::job j(parser); // Get a job from the parser: a bunch of reads (at most max_read_group)
-                if(j.is_empty()) break;          // If we have nothing, quit the loop
+                if(j.is_empty()) {
+                    std::cerr << "job is empty\n";
+                    break;          // If we have nothing, quit the loop
+                }
 
                 for(size_t i = 0; i < j->nb_filled; ++i) { // For all the reads we have
                     if (totReads++ % 1000000 == 0) {

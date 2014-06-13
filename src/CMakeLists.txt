@@ -4,6 +4,7 @@ set ( LIBRARY_FORMAT_SRCS
 
 set ( MINCE_SRCS
     Mince.cpp
+    FindPartition.cpp
 )
 
 set ( CANONICALIZE_SRCS
@@ -42,7 +43,7 @@ message("TBB_LIBRARIES = ${TBB_LIBRARIES}")
 message("Boost_LIBRARIES = ${Boost_LIBRARIES}")
 
 # Build the library
-add_library(library_format SHARED ${LIBRARY_FORMAT_SRCS})
+add_library(minceutils SHARED MinceUtils.cpp LibraryFormat.cpp)
 
 # Build the mince executable
 add_executable(mince ${MINCE_SRCS})
@@ -55,7 +56,7 @@ add_executable(mergepairs ${MERGE_PAIRS_SRCS})
 
 # Link the executable
 target_link_libraries(mince
-    library_format
+    minceutils
     ${Boost_LIBRARIES} 
     ${ZLIB_LIBRARY} 
     jellyfish-2.0 
@@ -67,7 +68,7 @@ target_link_libraries(mince
 
 # Link the executable
 target_link_libraries(canonicalize
-    library_format
+    minceutils
     ${Boost_LIBRARIES} 
     ${ZLIB_LIBRARY} 
     jellyfish-2.0 
@@ -79,7 +80,7 @@ target_link_libraries(canonicalize
 
 # Link the executable
 target_link_libraries(mergepairs
-    library_format
+    minceutils
     ${Boost_LIBRARIES} 
     ${ZLIB_LIBRARY} 
     jellyfish-2.0 
