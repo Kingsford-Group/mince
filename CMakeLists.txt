@@ -20,7 +20,7 @@ set(CPACK_SOURCE_PACKAGE_FILE_NAME
 set(CMAKE_MODULE_PATH ${CMAKE_MODULE_PATH} "${CMAKE_SOURCE_DIR}/cmake/Modules/")
 
 ## Set the standard required compile flags
-set (CMAKE_CXX_FLAGS "-g -funroll-loops -fPIC -O3 -DDEBUG -DHAVE_ANSI_TERM -DHAVE_SSTREAM -DHAVE_CONFIG_H -Wall -std=c++11 -Wno-unused-local-typedefs")
+set (CMAKE_CXX_FLAGS "-g -funroll-loops -fPIC -O3 -DHAVE_ANSI_TERM -DHAVE_SSTREAM -DHAVE_CONFIG_H -Wall -std=c++11 -Wno-unused-local-typedefs")
 
 ##
 # OSX is strange (some might say, stupid in this regard).  Deal with it's quirkines here.

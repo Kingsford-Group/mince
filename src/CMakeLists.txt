@@ -43,7 +43,7 @@ message("TBB_LIBRARIES = ${TBB_LIBRARIES}")
 message("Boost_LIBRARIES = ${Boost_LIBRARIES}")
 
 # Build the library
-add_library(minceutils SHARED MinceUtils.cpp LibraryFormat.cpp)
+add_library(minceutils SHARED MinceUtils.cpp LibraryFormat.cpp bitfile.cpp)
 
 # Build the mince executable
 add_executable(mince ${MINCE_SRCS})

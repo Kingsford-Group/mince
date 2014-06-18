@@ -23,7 +23,11 @@
 #include <jellyfish/whole_sequence_parser.hpp>
 
 #include <tbb/concurrent_unordered_map.h>
+#include <tbb/parallel_sort.h>
 
+#include "g2logworker.h"
+#include "g2log.h"
+#include "bitfile.h"
 #include "MinceUtils.hpp"
 #include "FindPartition.hpp"
 
@@ -78,7 +82,6 @@ class BucketedString {
 
 using CountMap = tbb::concurrent_unordered_map<uint32_t, uint32_t>;
 using my_mer = jellyfish::mer_dna_ns::mer_base_static<uint64_t, 1>;
-//using MapT = std::map<my_mer, std::vector<std::tuple<std::string, uint8_t>>>;
 using MapT = std::map<my_mer, std::vector<BucketedString>>;
 
 std::string unpermute(std::string& permS, std::string& key, size_t offset) {
@@ -369,7 +372,7 @@ void bucketReads(sequence_parser* parser, std::atomic<uint64_t>* total,
 }
 
 void reassignOnsies(
-        std::vector<std::tuple<my_mer, std::string>>& onsies,
+        std::vector<std::tuple<my_mer, BucketedString>>& onsies,
         CountMap& countMap,
         MapT& buckets,
         uint32_t bucketStringLength,
@@ -377,7 +380,8 @@ void reassignOnsies(
         ) {
 
     for (auto& kr : onsies) {
-        std::string s = std::get<1>(kr);
+	auto& bs = std::get<1>(kr);
+        std::string s = bs.str; 
         size_t readLength{s.length()};
         size_t offset{0};
         size_t roffset{readLength};
@@ -457,7 +461,8 @@ void reassignOnsies(
         }
 #endif
         //buckets[minmer].push_back(std::make_tuple(reord, firstOffset));
-        buckets[minmer].push_back({reord, static_cast<uint8_t>(firstOffset), (maxBucketDirection == Direction::REVERSE)});
+	bool canonicalFlip = (bs.rc xor (maxBucketDirection == Direction::REVERSE));
+        buckets[minmer].push_back({reord, static_cast<uint8_t>(firstOffset), canonicalFlip}); 
     }
 
 }
@@ -513,6 +518,10 @@ Mince
           std::cerr << " }\n";
       }
 
+      const std::string logPath = ".";
+      g2LogWorker logger(argv[0], logPath);
+      g2::initializeLogging(&logger);
+
       if (bucketStringLength < 1 or bucketStringLength > 16) {
           std::stringstream errstr;
           errstr << "The length of the bucket string must be between 1 and 16 (inclusive)";
@@ -552,17 +561,27 @@ Mince
       std::atomic<uint64_t> distinct{0};
       using my_mer = jellyfish::mer_dna_ns::mer_base_static<uint64_t, 1>;
 
+      // The sequence information is output to three streams
+      // The sequence & control stream --- ending in .seqs
       std::ofstream outfileSeqs;
       outfileSeqs.open(outfname+".seqs", std::ios::out | std::ios::binary);
+      // the offset stream --- ending in .offs
       std::ofstream outfileOffsets;
       outfileOffsets.open(outfname+".offs", std::ios::out | std::ios::binary);
+      // the flip stream --- just a bunch of bits denoting if the read was RC'd or not
+      const char* flipFileName = (outfname+".flips").c_str();
+      bit_file_c outfileFlips(flipFileName, BF_WRITE);
+      //std::ofstream outfileFlips;  
+      //outfileFlips.open(outfname+".flips", std::ios::out | std::ios::binary); 
       unsigned int kl{bucketStringLength};
       my_mer::k(kl);
 
-
+      // It's a small likelihood, but prevent us from messing up i/o
+      // by writing from multiple threads
       std::mutex iomutex;
       CountMap countMap;
       std::vector<MapT> maps(nb_threads);
+      LOG(INFO) << "Starting " << nb_threads << " read parsing threads";
       // Spawn of the read parsing threads
       for(int i = 0; i < nb_threads; ++i) {
           threads.push_back(std::thread(bucketReads<my_mer>, &parser, &total,
@@ -575,6 +594,7 @@ Mince
       for(int i = 0; i < nb_threads; ++i) {
           threads[i].join();
       }
+      LOG(INFO) << "parsing threads finished";
 
       // The union of keys from all maps
       std::set<my_mer> keys;
@@ -584,6 +604,7 @@ Mince
           }
       }
 
+      LOG(INFO) << "Marking and collecting onsies";
       // The length of the reads in this file
       uint8_t readLength = maps[0].begin()->second.front().str.length() + kl;
       std::cerr << "\n\nread length = " << +readLength << "\n";
@@ -596,7 +617,7 @@ Mince
       // The total # of buckets
       std::cerr << "Num buckets = " << keys.size() << "\n";
 
-      std::vector<std::tuple<my_mer, std::string>> onsies;
+      std::vector<std::tuple<my_mer, BucketedString>> onsies;
       // For all buckets
       for (auto& k : keys) {
           std::vector<std::tuple<my_mer, BucketedString>> combined;
@@ -627,13 +648,16 @@ Mince
               std::string s(std::get<1>(combined[0]).str);
               // Recover the original string
               size_t offset = std::get<1>(combined[0]).offset;
+	      bool rc = std::get<1>(combined[0]).rc;
               std::string recon = unpermute(s, bucketString, offset);
 
               // Push back the original key and the reconstructed string
-              onsies.push_back(std::forward_as_tuple(k, recon));
+              onsies.push_back(std::forward_as_tuple(k, BucketedString(recon, offset, rc)));
           }
       }
 
+      LOG(INFO) << "erasing onsies from individual maps";
+      
       // For all onsies
       for (auto& kr : onsies) {
           // erase this guy from the map and the set of keys
@@ -641,9 +665,8 @@ Mince
               auto key = std::get<0>(kr);
               auto kit = m.find(key);
               if (kit != m.end()) {
-                  if (kit->second.size() > 1) {
-                      std::cerr << "erasing non-singleton bucket (" << kit->second.size() << ")!\n";
-                  }
+		  LOG_IF(FATAL, (kit->second.size() > 1)) << "erasing non-singleton bucket (" 
+							  << kit->second.size() << ")!";
                   m.erase(kit);
                   keys.erase(key);
                   countMap[key.get_bits(0, 2*kl)]--;
@@ -655,6 +678,7 @@ Mince
       std::cerr << "there were " << totNumReads << " original reads\n";
       std::cerr << "there were " << onsies.size() << " original onsies\n";
 
+      LOG(INFO) << "re-assigning onsies";
       // Re-assign the onsies to see if they can be placed in any non-empty
       // buckets that didn't exist when they were first considered.
       MapT collatedMap;
@@ -677,6 +701,8 @@ Mince
           newTotal += kv.second.size();
       }
 
+      LOG(INFO) << "done re-assigning onsies";
+
       std::cerr << "|keys| = " << keys.size() << "\n";
       std::cerr << "now there are " << newOnsies << " onsies\n";
       std::cerr << "rebucketed " << newTotal << " reads\n";
@@ -688,20 +714,30 @@ Mince
       // The length of the reads
       outfileSeqs.write(reinterpret_cast<char*>(&readLength), sizeof(readLength));
 
-      std::cerr << "here\n";
-      std::sort(onsieVec.begin(), onsieVec.end(),
+      LOG(INFO) << "sorting onsies";
+      tbb::parallel_sort(onsieVec.begin(), onsieVec.end(),
               [](const std::tuple<my_mer, BucketedString>& o1, const std::tuple<my_mer, BucketedString>& o2) -> bool {
-                return std::get<1>(o1).str < std::get<1>(o2).str;
+		auto& s1 = const_cast<std::string&>(std::get<1>(o1).str);
+		auto& s2 = const_cast<std::string&>(std::get<1>(o2).str);
+		for (auto i1 = s1.rbegin(), i2 = s2.rbegin(); i1 != s1.rend() and i2 != s2.rend(); ++i1, ++i2) {
+		  if (*i1 != *i2) {
+			return *i1 < *i2;
+		  }
+		}
+		return s1.size() < s2.size();	
               });
 
+      LOG(INFO) << "done sorting onsies";
       std::cerr << "sorted onsies\n";
       // First, write out all remaining onsies
       outfileSeqs.write(reinterpret_cast<char*>(&newOnsies), sizeof(newOnsies));
       for (auto& bs : onsieVec) {
           auto& k = std::get<0>(bs);
-          auto& recon = std::get<1>(bs).str;
+	  auto& br = std::get<1>(bs);
+          auto& recon = br.str;
           auto bytes = mince::utils::twoBitEncode(recon);
           outfileSeqs.write(reinterpret_cast<char*>(&bytes[0]), sizeof(bytes[0])* bytes.size());
+	  outfileFlips.PutBit(br.rc);
           totOutput++;
           collatedMap.erase(k);
       }
@@ -739,8 +775,8 @@ Mince
 
           // Report bucket progress
           ++bnum;
-          if (bnum % 100 == 0) {
-              std::cerr << "\r\rprocessed " << bnum << "buckets";
+          if (bnum % 1000 == 0) {
+              std::cerr << "\r\rprocessed " << bnum << " buckets";
           }
 
           // The number of sub-buckets into which this bucket will be split
@@ -767,6 +803,7 @@ Mince
               size_t sbsize = subBucket.size();
               uint32_t lcpLen = subBucket.prefLen;
 
+	      LOG_IF(FATAL, (nextReadIdx > lastReadIdx)) << "sub-bucket " << i << " had non-positive range!";
               if (nextReadIdx > lastReadIdx) {
                   std::cerr << "next read index = " << nextReadIdx << " > "
                             << "last read index = " << lastReadIdx << "\n";
@@ -833,6 +870,7 @@ Mince
 
                       std::vector<uint8_t> bytes = mince::utils::twoBitEncode(rsub);
                       outfileSeqs.write(reinterpret_cast<char*>(&bytes[0]), sizeof(uint8_t) * bytes.size());
+		      outfileFlips.PutBit(r.rc);
                       if (extraBasesPerRead > 0) {
                           sstream << rstr.substr(encReadLength - extraBasesPerRead);
                       }
@@ -878,7 +916,9 @@ Mince
 
       outfileSeqs.close();
       outfileOffsets.close();
+      outfileFlips.Close();
       std::cerr << "Wrote: " << totOutput << " reads, in " << totBuckets << " buckets\n";
+      LOG(INFO) << "Done writing all buckets";
   } // end try
   catch (po::error &e) {
       std::cerr << "Exception : [" << e.what() << "]. Exiting.\n";
