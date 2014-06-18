@@ -7,6 +7,7 @@
 #include <iterator>
 #include <functional>
 #include <cmath>
+#include <mutex>
 
 #include <boost/pending/property.hpp>
 #include <boost/graph/adjacency_matrix.hpp>
@@ -36,14 +37,49 @@ struct CountList {
     std::vector<uint32_t> rlist;
 };
 
-struct BucketedString {
+class BucketedString {
+    public:
+
+        BucketedString(std::string& strIn, uint8_t offsetIn, bool rcIn) :
+            str(strIn), offset(offsetIn), rc(rcIn ? 1 : 0) {}
+
+        BucketedString(const BucketedString& other) {
+            str = other.str;
+            offset = other.offset;
+            rc = other.rc;
+        }
+
+
+        BucketedString& operator=(BucketedString& other) {
+            str = other.str;
+            offset = other.offset;
+            rc = other.rc;
+            return *this;
+        }
+
+        BucketedString(BucketedString&& other) {
+            std::swap(str, other.str);
+            offset = other.offset;
+            rc = other.rc;
+        }
+
+        BucketedString& operator=(BucketedString&& other) {
+            std::swap(str, other.str);
+            offset = other.offset;
+            rc = other.rc;
+            return *this;
+        }
+
+
     std::string str;
     uint8_t offset;
+    uint8_t rc : 1;
 };
 
 using CountMap = tbb::concurrent_unordered_map<uint32_t, uint32_t>;
 using my_mer = jellyfish::mer_dna_ns::mer_base_static<uint64_t, 1>;
-using MapT = std::map<my_mer, std::vector<std::tuple<std::string, uint8_t>>>;
+//using MapT = std::map<my_mer, std::vector<std::tuple<std::string, uint8_t>>>;
+using MapT = std::map<my_mer, std::vector<BucketedString>>;
 
 std::string unpermute(std::string& permS, std::string& key, size_t offset) {
     size_t l = permS.length();
@@ -203,7 +239,8 @@ void bucketReads(sequence_parser* parser, std::atomic<uint64_t>* total,
         MapT& buckets,
         CountMap& countMap,
         uint32_t bucketStringLength,
-        bool noRC) {
+        bool noRC,
+        std::mutex& iomutex) {
 
     uint64_t count = 0;
     unsigned int kl{bucketStringLength};
@@ -215,7 +252,9 @@ void bucketReads(sequence_parser* parser, std::atomic<uint64_t>* total,
 
         for(size_t i = 0; i < j->nb_filled; ++i) { // For all the read we got
             if (totReads++ % 1000000 == 0) {
+                iomutex.lock();
                 std::cerr << "\r\rprocessed " << totReads << " reads";
+                iomutex.unlock();
             }
             std::string s(j->data[i].seq);
 
@@ -282,7 +321,6 @@ void bucketReads(sequence_parser* parser, std::atomic<uint64_t>* total,
             uint32_t maxBucketKey{merOffsetMap.begin()->first};
             uint32_t maxBucketValue{0};
             Direction maxBucketDirection{std::get<1>(merOffsetMap.begin()->second)};
-            std::atomic<uint32_t> count;
             // Iterate over all k-mers and reverse complement k-mers
             for (auto& kv : merOffsetMap) {
                 auto cit = countMap.find(kv.first);
@@ -313,9 +351,8 @@ void bucketReads(sequence_parser* parser, std::atomic<uint64_t>* total,
             // new : y . x
             std::string reord = permute(s, firstOffset, kl);
 
-            std::string kstr = minmer.to_str();
-
 #ifdef DEBUG
+            std::string kstr = minmer.to_str();
             if ( s != unpermute(reord, kstr, firstOffset)) {
                 std::cerr << "ERROR!!! unpermute( " << reord << ", " << kstr << ", " << offset << ") != " << s << "\n";
             }
@@ -325,7 +362,8 @@ void bucketReads(sequence_parser* parser, std::atomic<uint64_t>* total,
             }
 #endif
             // Put the reordered string, offset tuple in the bucket
-            buckets[minmer].push_back(make_tuple(reord, firstOffset));
+            // buckets[minmer].push_back(make_tuple(reord, firstOffset));
+            buckets[minmer].push_back({reord, static_cast<uint8_t>(firstOffset), (maxBucketDirection == Direction::REVERSE)});
         } // for all of the reads in this job
     } // for all jobs of this thread
 }
@@ -357,12 +395,6 @@ void reassignOnsies(
         while (offset < s.size()) {
 
             int ca = jellyfish::mer_dna::code(s[offset]);
-            /*
-            if (jellyfish::mer_dna::not_dna(ca)) {
-                ca = static_cast<int>('A');
-                s[offset] = 'A';
-            }
-            */
 
             mer.shift_left(ca);
             rmer.shift_right(jellyfish::mer_dna::complement(ca));
@@ -377,9 +409,11 @@ void reassignOnsies(
                 auto it = merOffsetMap.find(key);
                 if (it == merOffsetMap.end()) {
                     merOffsetMap[key] = std::make_tuple(offset - kl, Direction::FORWARD);
+#ifdef DEBUG
                     if (s.substr(offset - kl, kl) != mer.to_str()) {
                         std::cerr << "putting " << mer.to_str() << " into the map, but I really have " << s.substr(offset - kl, kl) << "\n";
                     }
+#endif // DEBUG
                 }
 
                 if (!noRC) {
@@ -416,15 +450,14 @@ void reassignOnsies(
 
         std::string reord = permute(s, firstOffset, kl);
 
-        std::string kstr = minmer.to_str();
-
 #ifdef DEBUG
+        std::string kstr = minmer.to_str();
         if ( s != unpermute(reord, kstr, firstOffset)) {
             std::cerr << "ERROR!!! unpermute( " << reord << ", " << kstr << ", " << offset << ") != " << s << "\n";
         }
 #endif
-        buckets[minmer].push_back(std::make_tuple(reord, firstOffset));
-
+        //buckets[minmer].push_back(std::make_tuple(reord, firstOffset));
+        buckets[minmer].push_back({reord, static_cast<uint8_t>(firstOffset), (maxBucketDirection == Direction::REVERSE)});
     }
 
 }
@@ -526,13 +559,16 @@ Mince
       unsigned int kl{bucketStringLength};
       my_mer::k(kl);
 
+
+      std::mutex iomutex;
       CountMap countMap;
       std::vector<MapT> maps(nb_threads);
       // Spawn of the read parsing threads
       for(int i = 0; i < nb_threads; ++i) {
           threads.push_back(std::thread(bucketReads<my_mer>, &parser, &total,
                                         std::ref(totReads), std::ref(maps[i]),
-                                        std::ref(countMap), bucketStringLength, noRC));
+                                        std::ref(countMap), bucketStringLength,
+                                        noRC, std::ref(iomutex)));
       }
 
       // Join all of the read-parsing threads
@@ -549,7 +585,7 @@ Mince
       }
 
       // The length of the reads in this file
-      uint8_t readLength = std::get<0>(maps[0].begin()->second.front()).length() + kl;
+      uint8_t readLength = maps[0].begin()->second.front().str.length() + kl;
       std::cerr << "\n\nread length = " << +readLength << "\n";
 
       size_t totOutput{0};
@@ -563,7 +599,7 @@ Mince
       std::vector<std::tuple<my_mer, std::string>> onsies;
       // For all buckets
       for (auto& k : keys) {
-          std::vector<std::tuple<my_mer, std::string, size_t>> combined;
+          std::vector<std::tuple<my_mer, BucketedString>> combined;
           bool isOnsie{true};
 
           // For all maps
@@ -573,10 +609,7 @@ Mince
               auto kit = m.find(k);
               if (kit != m.end()) {
                   if (kit->second.size() == 1) {
-                      combined.push_back(std::forward_as_tuple(k,
-                                  std::get<0>(kit->second.front()),
-                                  std::get<1>(kit->second.front())
-                                  ));
+                      combined.push_back(std::forward_as_tuple(k, kit->second.front()));
                   } else {
                       isOnsie = false;
                   }
@@ -591,9 +624,9 @@ Mince
               auto bucketString = bucketMer.to_str();
 
               // The split / swapped string
-              std::string s(std::get<1>(combined[0]));
+              std::string s(std::get<1>(combined[0]).str);
               // Recover the original string
-              size_t offset = std::get<2>(combined[0]);
+              size_t offset = std::get<1>(combined[0]).offset;
               std::string recon = unpermute(s, bucketString, offset);
 
               // Push back the original key and the reconstructed string
@@ -630,16 +663,16 @@ Mince
       size_t newOnsies{0};
       size_t newTotal{0};
       std::set<my_mer> onsieKeys;
-      std::vector<std::tuple<my_mer, std::string>> onsieVec;
+      std::vector<std::tuple<my_mer, BucketedString>> onsieVec;
       for (auto& kv : collatedMap) {
           keys.insert(kv.first);
           if (kv.second.size() == 1) {
               ++newOnsies;
               onsieKeys.insert(kv.first);
               std::string bucketString = kv.first.to_str();
-              auto& so = kv.second.front();
-              std::string recon = unpermute(std::get<0>(so), bucketString, std::get<1>(so));
-              onsieVec.emplace_back(std::forward_as_tuple(kv.first, recon));
+              BucketedString& so = kv.second.front();
+              std::string recon = unpermute(so.str, bucketString, so.offset);
+              onsieVec.push_back(std::forward_as_tuple(kv.first, std::move(BucketedString(recon, so.offset, so.rc))));
           }
           newTotal += kv.second.size();
       }
@@ -655,17 +688,18 @@ Mince
       // The length of the reads
       outfileSeqs.write(reinterpret_cast<char*>(&readLength), sizeof(readLength));
 
+      std::cerr << "here\n";
       std::sort(onsieVec.begin(), onsieVec.end(),
-              [](const std::tuple<my_mer, std::string>& o1, const std::tuple<my_mer, std::string>& o2) -> bool {
-                return std::get<1>(o1) < std::get<1>(o2);
+              [](const std::tuple<my_mer, BucketedString>& o1, const std::tuple<my_mer, BucketedString>& o2) -> bool {
+                return std::get<1>(o1).str < std::get<1>(o2).str;
               });
 
+      std::cerr << "sorted onsies\n";
       // First, write out all remaining onsies
       outfileSeqs.write(reinterpret_cast<char*>(&newOnsies), sizeof(newOnsies));
-      for (auto& ks : onsieVec) {
-          auto& k = std::get<0>(ks);
-          if (collatedMap[k].size() != 1) { std::cerr << "onsie was not a onsie!!!\n"; std::exit(1); }
-          auto& recon = std::get<1>(ks);
+      for (auto& bs : onsieVec) {
+          auto& k = std::get<0>(bs);
+          auto& recon = std::get<1>(bs).str;
           auto bytes = mince::utils::twoBitEncode(recon);
           outfileSeqs.write(reinterpret_cast<char*>(&bytes[0]), sizeof(bytes[0])* bytes.size());
           totOutput++;
@@ -680,7 +714,7 @@ Mince
       // Go through all of the buckets
       for (auto& k : keys ) {
           // Collect all of the reads for this bucket
-          std::vector<std::tuple<std::string, size_t>> reads;
+          std::vector<BucketedString> reads;
           for (auto& m : maps) {
               auto kit = m.find(k);
               if (kit != m.end()) {
@@ -695,12 +729,11 @@ Mince
 
           // Sort the reads; first by the offset of the bucket string then lexicographically
           std::sort(reads.begin(), reads.end(),
-                    [&](const std::tuple<std::string, size_t>& a, const std::tuple<std::string, size_t>& b) -> bool {
-                        int cmp = std::get<1>(a) - std::get<1>(b);
-                        if (cmp == 0) {
-                            return std::get<0>(a) < std::get<0>(b);
+                    [&](const BucketedString& a, const BucketedString& b) -> bool {
+                        if (a.offset == b.offset) {
+                            return a.str < b.str;
                         } else {
-                            return cmp < 0;
+                            return a.offset < b.offset;
                         }
                   });
 
@@ -741,14 +774,14 @@ Mince
                   continue;
               }
 
-              std::string& firstRead = std::get<0>(reads[nextReadIdx]);
-              std::string& lastRead = std::get<0>(reads[lastReadIdx]);
+              std::string& firstRead = reads[nextReadIdx].str;
+              std::string& lastRead = reads[lastReadIdx].str;
 
-              size_t offset1 = std::get<1>(reads[nextReadIdx]);
-              size_t offset2 = std::get<1>(reads[lastReadIdx]);
+              size_t offset1 = reads[nextReadIdx].offset;
+              size_t offset2 = reads[lastReadIdx].offset;
 
               if (nextReadIdx == lastReadIdx) { lcpLen = 0; }
-              std::string keyStr = k.to_str() + std::get<0>(reads[nextReadIdx]).substr(0, lcpLen);
+              std::string keyStr = k.to_str() + reads[nextReadIdx].str.substr(0, lcpLen);
               auto keyStrLen = keyStr.length();
 
               if (offset1 > firstRead.length()) {
@@ -774,9 +807,11 @@ Mince
                   uint8_t zero{0};
                   outfileSeqs.write(reinterpret_cast<char*>(&zero), sizeof(zero));
               }
+
               // The size of this sub-bucket
               uint8_t subBucketSize = static_cast<uint8_t>(sbsize - 1);
               outfileSeqs.write(reinterpret_cast<char*>(&subBucketSize), sizeof(subBucketSize));
+
 
               size_t encReadLength = readLength - keyStr.length();
               size_t extraBasesPerRead = encReadLength % 4;
@@ -785,8 +820,8 @@ Mince
               // Write out the reads of this sub-bucket
               for (size_t j = nextReadIdx; j <= lastReadIdx; ++j) {
                   auto& r = reads[j];
-                  std::string rstr = std::get<0>(r);
-                  uint8_t offset = std::get<1>(r);
+                  std::string rstr = r.str;
+                  uint8_t offset = r.offset;
 
                   try {
                       std::string rsub = rstr.substr(lcpLen, encReadLength - extraBasesPerRead);
@@ -812,11 +847,11 @@ Mince
               offsets.reserve(sbsize);
               for (size_t j = nextReadIdx; j <= lastReadIdx; ++j) {
                   auto& r = reads[j];
-                  uint8_t l = static_cast<uint8_t>(std::get<1>(r));
+                  uint8_t l = r.offset;
 
-                  if (l > std::get<0>(r).length()) {
+                  if (l > r.str.length()) {
                     std::cerr << "offset is " << l << ", which is greater than "
-                              << "text length " << std::get<0>(r).length() << "\n";
+                              << "text length " << r.str.length() << "\n";
                   }
                   offsets.push_back(l);
                   totOutput++;
