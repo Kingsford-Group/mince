@@ -19,6 +19,10 @@ namespace utils {
     // Return the length of the shared prefix of strings a and b
     uint32_t lcp(std::string& a, std::string& b, uint32_t maxLen);
 
+    std::string unpermute(std::string& permS, std::string& key, size_t offset);
+
+    std::string permute(std::string& s, size_t offset, size_t kl);
+
     std::string twoBitDecode(const uint8_t* read, size_t readLength);
 
     std::vector<uint8_t> twoBitEncode(const std::string& str);

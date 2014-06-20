@@ -14,6 +14,14 @@ namespace mince {
             return pl;
         }
 
+	std::string unpermute(std::string& permS, std::string& key, size_t offset) {
+		size_t l = permS.length();
+		return permS.substr(l - offset) + key + permS.substr(0, l - offset);
+	}
+
+	std::string permute(std::string& s, size_t offset, size_t kl) {
+		return s.substr(offset + kl) + s.substr(0, offset);
+	}
 
         std::string twoBitDecode(const uint8_t* read, size_t readLength) {
             boost::dynamic_bitset<uint8_t> bitmap(2*readLength, 0);

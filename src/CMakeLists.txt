@@ -5,10 +5,15 @@ set ( LIBRARY_FORMAT_SRCS
 set ( MINCE_SRCS
     Mince.cpp
     FindPartition.cpp
+    Decoder.cpp
 )
 
 set ( CANONICALIZE_SRCS
     Canonicalize.cpp
+)
+
+set ( CANONICAL_COMPARE_SRCS 
+    CanonicalCompare.cpp
 )
 
 set ( MERGE_PAIRS_SRCS
@@ -54,6 +59,9 @@ add_executable(canonicalize ${CANONICALIZE_SRCS})
 # Build the mergepairs executable
 add_executable(mergepairs ${MERGE_PAIRS_SRCS})
 
+# Build the canoncmp executable
+add_executable(canoncmp ${CANONICAL_COMPARE_SRCS})
+
 # Link the executable
 target_link_libraries(mince
     minceutils
@@ -77,6 +85,19 @@ target_link_libraries(canonicalize
     ${TBB_LIBRARIES}
     ${LOGGING_LIBS}
 )
+
+# Link the executable
+target_link_libraries(canoncmp
+    minceutils
+    ${Boost_LIBRARIES} 
+    ${ZLIB_LIBRARY} 
+    jellyfish-2.0 
+    pthread 
+    m
+    ${TBB_LIBRARIES}
+    ${LOGGING_LIBS}
+)
+
 
 # Link the executable
 target_link_libraries(mergepairs

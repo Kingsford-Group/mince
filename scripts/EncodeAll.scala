@@ -10,8 +10,9 @@ import java.io.File
 case class FileInfo(var name: String, var method: String, var size: Long, var isPE: Boolean = false ) {
 }
 
-def getFileList(f: File, method: String, extension: String): HMap[File, FileInfo] = {
-    val pat = s"""(.*)(.${extension})""".r
+def getFileList(f: File, method: String, extensions: List[String]): HMap[File, FileInfo] = {
+    val pat = s"""(.*)(${extensions.mkString("|")})""".r
+    println(s"""Pattern: ${pat}""")
     val retFiles = new HMap[File, FileInfo]
     f.listFiles.foreach( fn =>
             fn.toString() match {
@@ -25,7 +26,7 @@ def getFileList(f: File, method: String, extension: String): HMap[File, FileInfo
 }
 
 
-val retMince = getFileList(new File(args(0)), "mince", "lz")
+val retMince = getFileList(new File(args(0)), "mince", List("offs.lz", "seqs.lz"))
 
 val minceMap = new HMap[String, FileInfo]
 retMince.foreach{ case (k,v) => 
@@ -37,9 +38,11 @@ retMince.foreach{ case (k,v) =>
     }
 }
 
+val scalceMap = new HMap[String, FileInfo]
+val fastqzMap = new HMap[String, FileInfo]
+/*
 val retScalce = getFileList(new File(args(1)), "scalce", "scalcer")
 
-val scalceMap = new HMap[String, FileInfo]
 retScalce.foreach{ case (k,v) => 
     var base = k.getName.split("_")(0)
     if (scalceMap.contains(base)) {
@@ -52,7 +55,6 @@ retScalce.foreach{ case (k,v) =>
 
 val retFastqz = getFileList(new File(args(2)), "fastqz", "fxb.zpaq")
 
-val fastqzMap = new HMap[String, FileInfo]
 retFastqz.foreach{ case (k,v) =>
     var base = k.getName.split("""\.""")(0)
     if (fastqzMap.contains(base)) {
@@ -61,7 +63,7 @@ retFastqz.foreach{ case (k,v) =>
         fastqzMap.put(base, v)
     }
 }
-
+*/
 val mergedMap = (minceMap.toSeq ++ scalceMap.toSeq ++ fastqzMap.toSeq).groupBy{ case (k,v) => k}
 
 val numKeys = mergedMap.keySet.size

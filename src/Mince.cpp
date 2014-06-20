@@ -9,11 +9,6 @@
 #include <cmath>
 #include <mutex>
 
-#include <boost/pending/property.hpp>
-#include <boost/graph/adjacency_matrix.hpp>
-#include <boost/graph/metric_tsp_approx.hpp>
-#include <boost/math/constants/constants.hpp>
-#include <boost/graph/connected_components.hpp>
 #include <boost/dynamic_bitset.hpp>
 #include <boost/program_options.hpp>
 #include <boost/filesystem.hpp>
@@ -30,6 +25,7 @@
 #include "bitfile.h"
 #include "MinceUtils.hpp"
 #include "FindPartition.hpp"
+#include "Decoder.hpp"
 
 typedef jellyfish::stream_manager<char**>                stream_manager;
 typedef jellyfish::whole_sequence_parser<stream_manager> sequence_parser;
@@ -44,13 +40,14 @@ struct CountList {
 class BucketedString {
     public:
 
-        BucketedString(std::string& strIn, uint8_t offsetIn, bool rcIn) :
-            str(strIn), offset(offsetIn), rc(rcIn ? 1 : 0) {}
+        BucketedString(std::string& strIn, uint8_t offsetIn, bool rcIn, std::vector<uint8_t>&& nlocsIn = std::vector<uint8_t>()) :
+            str(strIn), offset(offsetIn), rc(rcIn ? 1 : 0), nlocs(nlocsIn) {}
 
         BucketedString(const BucketedString& other) {
             str = other.str;
             offset = other.offset;
             rc = other.rc;
+	    nlocs = other.nlocs;
         }
 
 
@@ -58,6 +55,7 @@ class BucketedString {
             str = other.str;
             offset = other.offset;
             rc = other.rc;
+	    nlocs = other.nlocs;
             return *this;
         }
 
@@ -65,12 +63,14 @@ class BucketedString {
             std::swap(str, other.str);
             offset = other.offset;
             rc = other.rc;
+	    std::swap(nlocs, other.nlocs);
         }
 
         BucketedString& operator=(BucketedString&& other) {
             std::swap(str, other.str);
             offset = other.offset;
             rc = other.rc;
+	    std::swap(nlocs, other.nlocs);
             return *this;
         }
 
@@ -78,163 +78,12 @@ class BucketedString {
     std::string str;
     uint8_t offset;
     uint8_t rc : 1;
+    std::vector<uint8_t> nlocs;
 };
 
 using CountMap = tbb::concurrent_unordered_map<uint32_t, uint32_t>;
 using my_mer = jellyfish::mer_dna_ns::mer_base_static<uint64_t, 1>;
 using MapT = std::map<my_mer, std::vector<BucketedString>>;
-
-std::string unpermute(std::string& permS, std::string& key, size_t offset) {
-    size_t l = permS.length();
-    return permS.substr(l - offset) + key + permS.substr(0, l - offset);
-}
-
-
-std::string permute(std::string& s, size_t offset, size_t kl) {
-    return s.substr(offset + kl) + s.substr(0, offset);
-}
-
-void decode(std::string& ifname, std::string& ofname) {
-    std::ifstream ifile;
-    uint8_t rl{0};
-    uint8_t kl{0};
-    size_t numOnsies{0};
-
-    ifile.open(ifname, std::ios::in | std::ios::binary);
-    ifile.read(reinterpret_cast<char*>(&kl), sizeof(kl));
-    ifile.read(reinterpret_cast<char*>(&rl), sizeof(rl));
-    ifile.read(reinterpret_cast<char*>(&numOnsies), sizeof(numOnsies));
-
-    std::ofstream ofile;
-    ofile.open(ofname);
-
-    size_t readLength = rl;
-    uint64_t bucketMer{0};
-    std::string bucketString('X', kl);
-    my_mer bucketKmer;
-    my_mer::k(kl);
-
-    size_t effectiveReadLength = std::ceil((readLength) / 4.0);
-
-    size_t i{0};
-    char* onsieRead = new char[effectiveReadLength];
-
-    std::cerr << "kl = " << +kl << "\n";
-    std::cerr << "readLength = " << readLength << "\n";
-    std::cerr << "num onsies = " << numOnsies << "\n";
-    // decode all of the onsies
-    for (size_t j = 0; j < numOnsies; ++j) {
-        ifile.read(reinterpret_cast<char*>(onsieRead), effectiveReadLength);
-        std::string recon = mince::utils::twoBitDecode(reinterpret_cast<const uint8_t*>(onsieRead), readLength);
-        ofile << ">" << i << "\n" << recon << std::endl;
-    }
-
-    std::cerr << "done with onsies\n";
-    delete onsieRead;
-
-    uint32_t maxBucketSize{256};
-
-    effectiveReadLength = std::ceil((readLength - kl) / 4.0);
-    std::vector<std::string> reads(maxBucketSize, std::string(effectiveReadLength, 'X'));
-    std::vector<uint32_t> offsets(maxBucketSize, 0);
-    uint8_t offset{0};
-    size_t subBucketSize{0};
-
-    while (ifile.good()) {
-        uint8_t bsize{0};
-        uint8_t bucketStringLength{0};
-        uint32_t numBytes;
-
-        // Read the length of the bucket string (in characters)
-        ifile.read(reinterpret_cast<char*>(&bucketStringLength), sizeof(bucketStringLength));
-        numBytes = std::ceil(bucketStringLength / 4.0);
-
-        // Read the actual bucket string
-        std::vector<uint8_t> coreStrBytes(numBytes);
-        ifile.read(reinterpret_cast<char*>(&coreStrBytes[0]), numBytes);
-        bucketString = mince::utils::twoBitDecode(&coreStrBytes.front(), bucketStringLength);
-
-        // Read the bucket size
-        ifile.read(reinterpret_cast<char*>(&bsize), sizeof(bsize));
-
-        subBucketSize = bsize + 1;
-
-        //std::cerr << "bucket size = " << subBucketSize << "\n";
-
-        effectiveReadLength = std::ceil((readLength - bucketStringLength) / 4.0);
-
-        size_t subBucketCount{0};
-        for (subBucketCount = 0; subBucketCount < subBucketSize; ++subBucketCount) {
-            //std::cerr << "next read\n";
-            //std::cerr << "effectiveReadLength = " << effectiveReadLength << "\n";
-            reads[subBucketCount].resize(effectiveReadLength, 'X');
-            ifile.read(reinterpret_cast<char*>(&reads[subBucketCount][0]), effectiveReadLength);
-        }
-
-        for (subBucketCount = 0; subBucketCount < subBucketSize; ++subBucketCount) {
-            ifile.read(reinterpret_cast<char*>(&offsets[subBucketCount]), sizeof(uint8_t));
-        }
-        // Transform offset deltas into absolute offsets
-        uint8_t base = offsets.front();
-        for (size_t i = 1; i < subBucketSize; ++i) {
-            offsets[i] = base + offsets[i];
-            base = offsets[i];
-        }
-
-        for (subBucketCount = 0; subBucketCount < subBucketSize; ++subBucketCount) {
-            const char* read = reads[subBucketCount].c_str();
-            uint32_t offset = offsets[subBucketCount];
-
-                /*
-                std::cerr << "HERE6\n";
-                std::cerr << "bucket size = " << +subBucketSize << "\n";
-                std::cerr << "bucket-string = " << bucketString << "\n";
-                std::cerr << "bucket-string length = " << +bucketStringLength << "\n";
-                */
-            std::string s = mince::utils::twoBitDecode(reinterpret_cast<const uint8_t*>(read), readLength - bucketStringLength);
-
-                /*
-                std::cerr << "[" << s << "]( " << offset << ")\n";
-                std::cerr << "i = " << i << "\n";
-                std::cerr << "HERE7\n";
-                */
-
-            if (offset <= s.length()) {
-                //std::cerr << "HERE8\n";
-              std::string recon = unpermute(s, bucketString, offset);
-
-              if (recon.length() < readLength) {
-                  std::cerr << "recon = " << recon << "\n";
-                  std::cerr << "bucket string = " << bucketString << "\n";
-                  std::cerr << "offset = " << +offset << "\n";
-                  std::cerr << "s = " << s << "\n";
-                  std::exit(1);
-              }
-
-              ofile << ">" << i << "\n" << recon << std::endl;
-                //std::cerr << "recon = " << recon << "\n";
-            } else {
-                ofile << ">" << i << "\nERROR RECONSTRUCTING THIS READ" << std::endl;
-                std::cerr << "s.length() = " << s.length() << "\n";
-                std::cerr << "offset = " << +offset << "\n";
-                std::cerr << "HERE!!!!!!!!!\n";
-                std::exit(1);
-            }
-
-            ++i;
-            if (i % 100000 == 0) {
-                std::cerr << "\r\rwrote read " << i;
-            }
-        }
-    }
-    if (ifile.eof()) {
-        std::cerr << "reached EOF\n";
-    }
-
-
-    ifile.close();
-    ofile.close();
-}
 
 template <typename MerT>
 void bucketReads(sequence_parser* parser, std::atomic<uint64_t>* total,
@@ -349,15 +198,23 @@ void bucketReads(sequence_parser* parser, std::atomic<uint64_t>* total,
             // The first appearance of the key in the read
             firstOffset = std::get<0>(merOffsetMap[maxBucketKey]);
 
-            std::replace(s.begin(), s.end(), 'N', 'A');
+	    std::vector<uint8_t> nlocs;
+            //std::replace(s.begin(), s.end(), 'N', 'A');
+	    for (uint32_t i = 0; i < s.size(); ++i) {
+	    	if (s[i] == 'N') { 
+		  nlocs.emplace_back(static_cast<uint8_t>(i)); 
+		  s[i] = 'A';
+		}
+	    }
+
             // orig: x . key . y
             // new : y . x
-            std::string reord = permute(s, firstOffset, kl);
+            std::string reord = mince::utils::permute(s, firstOffset, kl);
 
 #ifdef DEBUG
             std::string kstr = minmer.to_str();
-            if ( s != unpermute(reord, kstr, firstOffset)) {
-                std::cerr << "ERROR!!! unpermute( " << reord << ", " << kstr << ", " << offset << ") != " << s << "\n";
+            if ( s != mince::utils::unpermute(reord, kstr, firstOffset)) {
+                std::cerr << "ERROR!!! mince::utils::unpermute( " << reord << ", " << kstr << ", " << offset << ") != " << s << "\n";
             }
             if (s.substr(firstOffset, kl) != minmer.to_str()) {
                 std::cerr << "A string contains " << s.substr(firstOffset, kl) << ", but mer is " << minmer.to_str() << ", read = " << s << ", offset = " << firstOffset << "\n";
@@ -366,7 +223,7 @@ void bucketReads(sequence_parser* parser, std::atomic<uint64_t>* total,
 #endif
             // Put the reordered string, offset tuple in the bucket
             // buckets[minmer].push_back(make_tuple(reord, firstOffset));
-            buckets[minmer].push_back({reord, static_cast<uint8_t>(firstOffset), (maxBucketDirection == Direction::REVERSE)});
+            buckets[minmer].push_back({reord, static_cast<uint8_t>(firstOffset), (maxBucketDirection == Direction::REVERSE), std::move(nlocs)});
         } // for all of the reads in this job
     } // for all jobs of this thread
 }
@@ -382,6 +239,7 @@ void reassignOnsies(
     for (auto& kr : onsies) {
 	auto& bs = std::get<1>(kr);
         std::string s = bs.str; 
+	std::vector<uint8_t>& nlocs = bs.nlocs;
         size_t readLength{s.length()};
         size_t offset{0};
         size_t roffset{readLength};
@@ -446,23 +304,27 @@ void reassignOnsies(
 
         if (maxBucketDirection == Direction::REVERSE) {
             mince::utils::reverseComplement(s);
+	    size_t N = s.size() - 1;
+	    for (size_t i = 0; i < nlocs.size(); ++i) {
+		nlocs[i] = N - nlocs[i]; 
+	    }
         }
 
         countMap[maxBucketKey]++;
         minmer.set_bits(0, 2*kl, maxBucketKey);
         firstOffset = std::get<0>(merOffsetMap[maxBucketKey]);
 
-        std::string reord = permute(s, firstOffset, kl);
+        std::string reord = mince::utils::permute(s, firstOffset, kl);
 
 #ifdef DEBUG
         std::string kstr = minmer.to_str();
-        if ( s != unpermute(reord, kstr, firstOffset)) {
-            std::cerr << "ERROR!!! unpermute( " << reord << ", " << kstr << ", " << offset << ") != " << s << "\n";
+        if ( s != mince::utils::unpermute(reord, kstr, firstOffset)) {
+            std::cerr << "ERROR!!! mince::utils::unpermute( " << reord << ", " << kstr << ", " << offset << ") != " << s << "\n";
         }
 #endif
         //buckets[minmer].push_back(std::make_tuple(reord, firstOffset));
 	bool canonicalFlip = (bs.rc xor (maxBucketDirection == Direction::REVERSE));
-        buckets[minmer].push_back({reord, static_cast<uint8_t>(firstOffset), canonicalFlip}); 
+        buckets[minmer].push_back({reord, static_cast<uint8_t>(firstOffset), canonicalFlip, std::move(nlocs)}); 
     }
 
 }
@@ -542,7 +404,8 @@ Mince
       if (doDecode) {
           std::string input = vm["input"].as<string>();
           std::string output = vm["output"].as<string>();
-          decode(input, output);
+	  Decoder d;
+          d.decode(input, output);
           std::exit(0);
       }
 
@@ -571,6 +434,8 @@ Mince
       // the flip stream --- just a bunch of bits denoting if the read was RC'd or not
       const char* flipFileName = (outfname+".flips").c_str();
       bit_file_c outfileFlips(flipFileName, BF_WRITE);
+      std::ofstream outfileNLocs;
+      outfileNLocs.open(outfname+".nlocs", std::ios::out | std::ios::binary);
       //std::ofstream outfileFlips;  
       //outfileFlips.open(outfname+".flips", std::ios::out | std::ios::binary); 
       unsigned int kl{bucketStringLength};
@@ -649,10 +514,11 @@ Mince
               // Recover the original string
               size_t offset = std::get<1>(combined[0]).offset;
 	      bool rc = std::get<1>(combined[0]).rc;
-              std::string recon = unpermute(s, bucketString, offset);
+	      std::vector<uint8_t>& nlocs = std::get<1>(combined[0]).nlocs;
+              std::string recon = mince::utils::unpermute(s, bucketString, offset);
 
               // Push back the original key and the reconstructed string
-              onsies.push_back(std::forward_as_tuple(k, BucketedString(recon, offset, rc)));
+              onsies.push_back(std::forward_as_tuple(k, BucketedString(recon, offset, rc, std::move(nlocs))));
           }
       }
 
@@ -695,8 +561,8 @@ Mince
               onsieKeys.insert(kv.first);
               std::string bucketString = kv.first.to_str();
               BucketedString& so = kv.second.front();
-              std::string recon = unpermute(so.str, bucketString, so.offset);
-              onsieVec.push_back(std::forward_as_tuple(kv.first, std::move(BucketedString(recon, so.offset, so.rc))));
+              std::string recon = mince::utils::unpermute(so.str, bucketString, so.offset);
+              onsieVec.push_back(std::forward_as_tuple(kv.first, std::move(BucketedString(recon, so.offset, so.rc, std::move(so.nlocs)))));
           }
           newTotal += kv.second.size();
       }
@@ -729,6 +595,7 @@ Mince
 
       LOG(INFO) << "done sorting onsies";
       std::cerr << "sorted onsies\n";
+      uint32_t readCtr{0};
       // First, write out all remaining onsies
       outfileSeqs.write(reinterpret_cast<char*>(&newOnsies), sizeof(newOnsies));
       for (auto& bs : onsieVec) {
@@ -736,6 +603,13 @@ Mince
 	  auto& br = std::get<1>(bs);
           auto& recon = br.str;
           auto bytes = mince::utils::twoBitEncode(recon);
+	  if (br.nlocs.size() > 0) { 
+	  	outfileNLocs.write(reinterpret_cast<char*>(&readCtr), sizeof(readCtr));
+		uint8_t nn = br.nlocs.size();
+		outfileNLocs.write(reinterpret_cast<char*>(&nn), sizeof(nn));
+		outfileNLocs.write(reinterpret_cast<char*>(&br.nlocs[0]), nn * sizeof(br.nlocs[0]));
+	  }
+	  ++readCtr;
           outfileSeqs.write(reinterpret_cast<char*>(&bytes[0]), sizeof(bytes[0])* bytes.size());
 	  outfileFlips.PutBit(br.rc);
           totOutput++;
@@ -802,14 +676,9 @@ Mince
               size_t lastReadIdx = subBucket.stopIdx;
               size_t sbsize = subBucket.size();
               uint32_t lcpLen = subBucket.prefLen;
+	      LOG(INFO) << "writing bucket of size " << sbsize;
 
 	      LOG_IF(FATAL, (nextReadIdx > lastReadIdx)) << "sub-bucket " << i << " had non-positive range!";
-              if (nextReadIdx > lastReadIdx) {
-                  std::cerr << "next read index = " << nextReadIdx << " > "
-                            << "last read index = " << lastReadIdx << "\n";
-                  std::exit(1);
-                  continue;
-              }
 
               std::string& firstRead = reads[nextReadIdx].str;
               std::string& lastRead = reads[lastReadIdx].str;
@@ -849,7 +718,6 @@ Mince
               uint8_t subBucketSize = static_cast<uint8_t>(sbsize - 1);
               outfileSeqs.write(reinterpret_cast<char*>(&subBucketSize), sizeof(subBucketSize));
 
-
               size_t encReadLength = readLength - keyStr.length();
               size_t extraBasesPerRead = encReadLength % 4;
               std::stringstream sstream;
@@ -861,7 +729,7 @@ Mince
                   uint8_t offset = r.offset;
 
                   try {
-                      std::string rsub = rstr.substr(lcpLen, encReadLength - extraBasesPerRead);
+                      std::string rsub = rstr;//rstr.substr(lcpLen, encReadLength - extraBasesPerRead);
                       if (offset > rsub.size()) {
                           std::cerr << "bucket[" << nextReadIdx << ", " << lastReadIdx << "]\n";
                           std::cerr << "lcpLen = " << lcpLen << "\n";
@@ -871,7 +739,14 @@ Mince
                       std::vector<uint8_t> bytes = mince::utils::twoBitEncode(rsub);
                       outfileSeqs.write(reinterpret_cast<char*>(&bytes[0]), sizeof(uint8_t) * bytes.size());
 		      outfileFlips.PutBit(r.rc);
-                      if (extraBasesPerRead > 0) {
+		      if (r.nlocs.size() > 0) { 
+			      outfileNLocs.write(reinterpret_cast<char*>(&readCtr), sizeof(readCtr));
+			      uint8_t nn = r.nlocs.size();
+			      outfileNLocs.write(reinterpret_cast<char*>(&nn), sizeof(nn));
+			      outfileNLocs.write(reinterpret_cast<char*>(&r.nlocs[0]), nn * sizeof(r.nlocs[0]));
+		      }
+		      ++readCtr;
+		      if (extraBasesPerRead > 0) {
                           sstream << rstr.substr(encReadLength - extraBasesPerRead);
                       }
 
@@ -916,6 +791,7 @@ Mince
 
       outfileSeqs.close();
       outfileOffsets.close();
+      outfileNLocs.close();
       outfileFlips.Close();
       std::cerr << "Wrote: " << totOutput << " reads, in " << totBuckets << " buckets\n";
       LOG(INFO) << "Done writing all buckets";
