@@ -1,9 +1,87 @@
 #include <exception>
 #include <sstream>
+
+#include <jellyfish/mer_dna.hpp>
+
 #include "MinceUtils.hpp"
 
 namespace mince {
     namespace utils {
+        using Trimer = jellyfish::mer_dna_ns::mer_base_static<uint64_t, 2>;
+
+        std::vector<double> trimerVectorRC(std::string& s) {
+            auto start = s.begin();
+            auto stop = s.end();
+            size_t kl{6};
+            size_t cmlen{0};
+            std::vector<double> fvec(4096, 0.0);
+
+            Trimer mer;
+            mer.polyT();
+
+            for (auto it = start; it != stop; ++it) {
+                // Get the code for the next base
+                int c = jellyfish::mer_dna::code(*it);
+
+                // If it's not a valid DNA code
+                if (jellyfish::mer_dna::not_dna(c)) {
+                    // Switch it to an 'A' in the mer
+                    c = jellyfish::mer_dna::code('A');
+                    mer.shift_right(c);
+                } else { // Otherwise, base is legit
+                    mer.shift_right(jellyfish::mer_dna::complement(c));
+                }
+
+                // If we've read a full k-mer
+                if (++cmlen >= kl) {
+                    cmlen = kl;
+                    auto key = mer.get_bits(0, 2*kl);
+                    fvec[key] += 1.0;
+                }
+            }
+
+            return fvec;
+        }
+
+        // Return a feature vector with the number of occurences of each
+        // trimer in the read.
+        std::vector<double> trimerVector(std::string& s, bool rc){
+            Trimer::k(6);
+            if (rc) { return trimerVectorRC(s); }
+
+            size_t offset{0};
+            size_t kl{6};
+            size_t cmlen{0};
+            std::vector<double> fvec(4096, 0.0);
+
+            Trimer mer;
+            mer.polyT();
+
+            while (offset < s.size()) {
+                // Get the code for the next base
+                int c = jellyfish::mer_dna::code(s[offset]);
+
+                // If it's not a valid DNA code
+                if (jellyfish::mer_dna::not_dna(c)) {
+                    // Switch it to an 'A' in the mer
+                    c = jellyfish::mer_dna::code('A');
+                    mer.shift_left(c);
+                } else { // Otherwise, base is legit
+                    mer.shift_left(c);
+                }
+
+                ++offset;
+                // If we've read a full k-mer
+                if (++cmlen >= kl) {
+                    cmlen = kl;
+                    auto key = mer.get_bits(0, 2*kl);
+                    fvec[key] += 1.0;
+                }
+            }
+
+            return fvec;
+        }
+
         // Return the length of the shared prefix of strings a and b
         uint32_t lcp(std::string& a, std::string& b, uint32_t maxLen) {
             size_t l = a.length();
@@ -15,11 +93,14 @@ namespace mince {
         }
 
 	std::string unpermute(std::string& permS, std::string& key, size_t offset) {
-		size_t l = permS.length();
+		//size_t l = permS.length();
+        //return permS.substr(0, offset) + key + permS.substr(offset);
+        size_t l = permS.length();
 		return permS.substr(l - offset) + key + permS.substr(0, l - offset);
 	}
 
 	std::string permute(std::string& s, size_t offset, size_t kl) {
+        //return s.substr(0, offset) + s.substr(offset+kl);
 		return s.substr(offset + kl) + s.substr(0, offset);
 	}
 

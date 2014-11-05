@@ -1,0 +1,1 @@
+./EncodeAll.scala /data/mince/mince_results_Jun28  /data/mince/mince_results_norc /data/mince/scalce_results /data/mince/fastqz_results

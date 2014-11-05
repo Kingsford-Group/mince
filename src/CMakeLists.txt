@@ -6,6 +6,9 @@ set ( MINCE_SRCS
     Mince.cpp
     FindPartition.cpp
     Decoder.cpp
+    BucketModel.cpp
+    bloom.c
+    misc.c
 )
 
 set ( CANONICALIZE_SRCS

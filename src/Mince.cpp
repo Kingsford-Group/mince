@@ -26,6 +26,7 @@
 #include "MinceUtils.hpp"
 #include "FindPartition.hpp"
 #include "Decoder.hpp"
+#include "BucketModel.hpp"
 
 typedef jellyfish::stream_manager<char**>                stream_manager;
 typedef jellyfish::whole_sequence_parser<stream_manager> sequence_parser;
@@ -39,7 +40,6 @@ struct CountList {
 
 class BucketedString {
     public:
-
         BucketedString(std::string& strIn, uint8_t offsetIn, bool rcIn, std::vector<uint8_t>&& nlocsIn = std::vector<uint8_t>()) :
             str(strIn), offset(offsetIn), rc(rcIn ? 1 : 0), nlocs(nlocsIn) {}
 
@@ -81,7 +81,8 @@ class BucketedString {
     std::vector<uint8_t> nlocs;
 };
 
-using CountMap = tbb::concurrent_unordered_map<uint32_t, uint32_t>;
+using CountMap = tbb::concurrent_unordered_map<uint32_t, BucketModel>;
+//using CountMap = tbb::concurrent_unordered_map<uint32_t, uint32_t>;
 using my_mer = jellyfish::mer_dna_ns::mer_base_static<uint64_t, 1>;
 using MapT = std::map<my_mer, std::vector<BucketedString>>;
 
@@ -171,17 +172,26 @@ void bucketReads(sequence_parser* parser, std::atomic<uint64_t>* total,
 
             // Decide the heaviest bucket --- this is where the read will be placed
             uint32_t maxBucketKey{merOffsetMap.begin()->first};
-            uint32_t maxBucketValue{0};
+            double maxBucketValue{0};
             Direction maxBucketDirection{std::get<1>(merOffsetMap.begin()->second)};
+            //auto featVec = mince::utils::trimerVector(s, false);
+            //auto featVecRC = mince::utils::trimerVector(s, true);
+
             // Iterate over all k-mers and reverse complement k-mers
             for (auto& kv : merOffsetMap) {
                 auto cit = countMap.find(kv.first);
                 // If the bucket for this key is the heaviest so far
                 // then it becomes the new bucket key.
-                if (cit != countMap.end() and cit->second > maxBucketValue) {
-                    maxBucketValue = cit->second;
-                    maxBucketDirection = std::get<1>(kv.second);
-                    maxBucketKey = kv.first;
+                if (cit != countMap.end()) {
+                    auto dir = std::get<1>(kv.second);
+                    bool rc = dir == Direction::REVERSE;
+                    //auto& fvec = (dir == Direction::REVERSE) ? featVecRC : featVec;
+                    double score = cit->second.scoreOfRead(s, 8, rc);//fvec);
+                    if (score > maxBucketValue) {
+                        maxBucketValue = score;
+                        maxBucketDirection = std::get<1>(kv.second);
+                        maxBucketKey = kv.first;
+                    }
                 }
             }
 
@@ -191,21 +201,22 @@ void bucketReads(sequence_parser* parser, std::atomic<uint64_t>* total,
                 mince::utils::reverseComplement(s);
             }
             // Increment the count of the assigned bucket
-            countMap[maxBucketKey]++;
+            //countMap[maxBucketKey]++;
+            countMap[maxBucketKey].addRead(s, 8);//(maxBucketDirection == Direction::REVERSE) ? featVecRC : featVec);
 
             // Encode the read accounting for the shared string
             minmer.set_bits(0, 2*kl, maxBucketKey);
             // The first appearance of the key in the read
             firstOffset = std::get<0>(merOffsetMap[maxBucketKey]);
 
-	    std::vector<uint8_t> nlocs;
+            std::vector<uint8_t> nlocs;
             //std::replace(s.begin(), s.end(), 'N', 'A');
-	    for (uint32_t i = 0; i < s.size(); ++i) {
-	    	if (s[i] == 'N') { 
-		  nlocs.emplace_back(static_cast<uint8_t>(i)); 
-		  s[i] = 'A';
-		}
-	    }
+            for (uint32_t i = 0; i < s.size(); ++i) {
+                if (s[i] == 'N') {
+                    nlocs.emplace_back(static_cast<uint8_t>(i));
+                    s[i] = 'A';
+                }
+            }
 
             // orig: x . key . y
             // new : y . x
@@ -238,7 +249,7 @@ void reassignOnsies(
 
     for (auto& kr : onsies) {
 	auto& bs = std::get<1>(kr);
-        std::string s = bs.str; 
+        std::string s = bs.str;
 	std::vector<uint8_t>& nlocs = bs.nlocs;
         size_t readLength{s.length()};
         size_t offset{0};
@@ -290,15 +301,24 @@ void reassignOnsies(
         }
 
         uint32_t maxBucketKey{merOffsetMap.begin()->first};
-        uint32_t maxBucketValue{0};
+        double maxBucketValue{0};
         Direction maxBucketDirection{std::get<1>(merOffsetMap.begin()->second)};
+        //auto featVec = mince::utils::trimerVector(s, false);
+        //auto featVecRC = mince::utils::trimerVector(s, true);
+
         std::atomic<uint32_t> count;
         for (auto& kv : merOffsetMap) {
             auto cit = countMap.find(kv.first);
-            if (cit != countMap.end() and cit->second > maxBucketValue) {
-                maxBucketValue = cit->second;
-                maxBucketDirection = std::get<1>(kv.second);
-                maxBucketKey = kv.first;
+            if (cit != countMap.end()) {
+                auto dir = std::get<1>(kv.second);
+                bool rc = dir == Direction::REVERSE;
+                //auto& fvec = (dir == Direction::REVERSE) ? featVecRC : featVec;
+                double score = cit->second.scoreOfRead(s, 8, rc);//fvec);
+                if (score > maxBucketValue) {
+                    maxBucketValue = score;
+                    maxBucketDirection = std::get<1>(kv.second);
+                    maxBucketKey = kv.first;
+                }
             }
         }
 
@@ -306,11 +326,13 @@ void reassignOnsies(
             mince::utils::reverseComplement(s);
 	    size_t N = s.size() - 1;
 	    for (size_t i = 0; i < nlocs.size(); ++i) {
-		nlocs[i] = N - nlocs[i]; 
+		nlocs[i] = N - nlocs[i];
 	    }
         }
 
-        countMap[maxBucketKey]++;
+        //countMap[maxBucketKey]++;
+        countMap[maxBucketKey].addRead(s, 8);//(maxBucketDirection == Direction::REVERSE) ? featVecRC : featVec);
+
         minmer.set_bits(0, 2*kl, maxBucketKey);
         firstOffset = std::get<0>(merOffsetMap[maxBucketKey]);
 
@@ -324,7 +346,7 @@ void reassignOnsies(
 #endif
         //buckets[minmer].push_back(std::make_tuple(reord, firstOffset));
 	bool canonicalFlip = (bs.rc xor (maxBucketDirection == Direction::REVERSE));
-        buckets[minmer].push_back({reord, static_cast<uint8_t>(firstOffset), canonicalFlip, std::move(nlocs)}); 
+        buckets[minmer].push_back({reord, static_cast<uint8_t>(firstOffset), canonicalFlip, std::move(nlocs)});
     }
 
 }
@@ -404,7 +426,7 @@ Mince
       if (doDecode) {
           std::string input = vm["input"].as<string>();
           std::string output = vm["output"].as<string>();
-	  Decoder d;
+          Decoder d;
           d.decode(input, output);
           std::exit(0);
       }
@@ -424,7 +446,7 @@ Mince
       std::atomic<uint64_t> distinct{0};
       using my_mer = jellyfish::mer_dna_ns::mer_base_static<uint64_t, 1>;
 
-      // The sequence information is output to three streams
+      // The sequence information is output to four streams
       // The sequence & control stream --- ending in .seqs
       std::ofstream outfileSeqs;
       outfileSeqs.open(outfname+".seqs", std::ios::out | std::ios::binary);
@@ -434,10 +456,11 @@ Mince
       // the flip stream --- just a bunch of bits denoting if the read was RC'd or not
       const char* flipFileName = (outfname+".flips").c_str();
       bit_file_c outfileFlips(flipFileName, BF_WRITE);
+      // the Ns stream --- encodes the locations where an N has been flipped in the
+      // encoded sequence.
       std::ofstream outfileNLocs;
       outfileNLocs.open(outfname+".nlocs", std::ios::out | std::ios::binary);
-      //std::ofstream outfileFlips;  
-      //outfileFlips.open(outfname+".flips", std::ios::out | std::ios::binary); 
+
       unsigned int kl{bucketStringLength};
       my_mer::k(kl);
 
@@ -447,7 +470,7 @@ Mince
       CountMap countMap;
       std::vector<MapT> maps(nb_threads);
       LOG(INFO) << "Starting " << nb_threads << " read parsing threads";
-      // Spawn of the read parsing threads
+      // Spawn off the read parsing threads
       for(int i = 0; i < nb_threads; ++i) {
           threads.push_back(std::thread(bucketReads<my_mer>, &parser, &total,
                                         std::ref(totReads), std::ref(maps[i]),
@@ -523,7 +546,7 @@ Mince
       }
 
       LOG(INFO) << "erasing onsies from individual maps";
-      
+
       // For all onsies
       for (auto& kr : onsies) {
           // erase this guy from the map and the set of keys
@@ -531,11 +554,11 @@ Mince
               auto key = std::get<0>(kr);
               auto kit = m.find(key);
               if (kit != m.end()) {
-		  LOG_IF(FATAL, (kit->second.size() > 1)) << "erasing non-singleton bucket (" 
+		  LOG_IF(FATAL, (kit->second.size() > 1)) << "erasing non-singleton bucket ("
 							  << kit->second.size() << ")!";
                   m.erase(kit);
                   keys.erase(key);
-                  countMap[key.get_bits(0, 2*kl)]--;
+                  countMap[key.get_bits(0, 2*kl)].subCount();
               }
           }
       }
@@ -590,7 +613,7 @@ Mince
 			return *i1 < *i2;
 		  }
 		}
-		return s1.size() < s2.size();	
+		return s1.size() < s2.size();
               });
 
       LOG(INFO) << "done sorting onsies";
@@ -603,15 +626,19 @@ Mince
 	  auto& br = std::get<1>(bs);
           auto& recon = br.str;
           auto bytes = mince::utils::twoBitEncode(recon);
-	  if (br.nlocs.size() > 0) { 
+	  if (br.nlocs.size() > 0) {
 	  	outfileNLocs.write(reinterpret_cast<char*>(&readCtr), sizeof(readCtr));
 		uint8_t nn = br.nlocs.size();
 		outfileNLocs.write(reinterpret_cast<char*>(&nn), sizeof(nn));
 		outfileNLocs.write(reinterpret_cast<char*>(&br.nlocs[0]), nn * sizeof(br.nlocs[0]));
 	  }
 	  ++readCtr;
+          // BINARY
           outfileSeqs.write(reinterpret_cast<char*>(&bytes[0]), sizeof(bytes[0])* bytes.size());
-	  outfileFlips.PutBit(br.rc);
+          // ASCII
+          //outfileSeqs.write(&recon[0], recon.length());
+
+          outfileFlips.PutBit(br.rc);
           totOutput++;
           collatedMap.erase(k);
       }
@@ -736,10 +763,14 @@ Mince
                           std::cerr << "encountered an offset " << +offset << " that is greater than the string length " << rsub.length() << "\n";
                       }
 
+                      // BINARY
                       std::vector<uint8_t> bytes = mince::utils::twoBitEncode(rsub);
                       outfileSeqs.write(reinterpret_cast<char*>(&bytes[0]), sizeof(uint8_t) * bytes.size());
+                      // ASCII
+                      // outfileSeqs.write(&rsub[0], rsub.length());
+
 		      outfileFlips.PutBit(r.rc);
-		      if (r.nlocs.size() > 0) { 
+		      if (r.nlocs.size() > 0) {
 			      outfileNLocs.write(reinterpret_cast<char*>(&readCtr), sizeof(readCtr));
 			      uint8_t nn = r.nlocs.size();
 			      outfileNLocs.write(reinterpret_cast<char*>(&nn), sizeof(nn));

@@ -16,6 +16,11 @@
 namespace mince {
 namespace utils {
 
+    // Return a feature vector with the number of occurences of each
+    // trimer in the read.
+    std::vector<double> trimerVectorRC(std::string& str);
+    std::vector<double> trimerVector(std::string& str, bool);
+
     // Return the length of the shared prefix of strings a and b
     uint32_t lcp(std::string& a, std::string& b, uint32_t maxLen);
 
