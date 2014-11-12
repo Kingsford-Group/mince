@@ -102,10 +102,12 @@ void KmerSet::operator=(const KmerSet& o)
     storage_ = o.storage_;
     switch (storage_) {
         case STO_SET:
+            s_ = new std::set<uint16_t>(*o.s_);
             (*s_) = *o.s_;
             break;
 
         case STO_BS: 
+            bs_ = new boost::dynamic_bitset<>(65536);
             (*bs_) = *bs_;
             break;
     }
