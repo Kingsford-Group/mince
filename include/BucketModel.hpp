@@ -25,6 +25,7 @@ public:
    ~KmerSet();
    void add(kmer_t k);
    int contains(kmer_t k);
+   void operator=(const KmerSet& o);
 
 protected:
    /*void add_set(kmer_t k);
