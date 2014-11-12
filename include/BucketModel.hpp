@@ -5,6 +5,7 @@
 #include <vector>
 #include <mutex>
 #include <memory>
+#include <set>
 
 #include <boost/dynamic_bitset.hpp>
 
@@ -19,6 +20,8 @@ using kmer_t = uint64_t;
 
 class KmerSet {
 public:
+   KmerSet();
+   ~KmerSet();
    void add(kmer_t k);
    int contains(kmer_t k);
 
