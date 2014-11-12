@@ -207,7 +207,7 @@ double BucketModel::scoreOfRead(std::string& s, uint8_t k, bool rc) {
             cmlen = kl;
             kmer_t key = mer.get_bits(0, 2*kl);
             ip += kmers_.contains(key);
-            ip += trimerCount_[key];//bloom_get(bloomFilt_.get(), key);
+            //ip += trimerCount_[key];//bloom_get(bloomFilt_.get(), key);
         }
 
     }
