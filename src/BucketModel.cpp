@@ -103,7 +103,6 @@ void KmerSet::operator=(const KmerSet& o)
     switch (storage_) {
         case STO_SET:
             s_ = new std::set<uint16_t>(*o.s_);
-            (*s_) = *o.s_;
             break;
 
         case STO_BS: 
@@ -193,6 +192,7 @@ double BucketModel::scoreOfReadRC(std::string& s, uint8_t k) {
     size_t kl{k};
     size_t cmlen{0};
 
+    bloomMutex_.lock();
     Kmer mer;
     mer.polyT();
     double ip{0.0};
@@ -217,6 +217,7 @@ double BucketModel::scoreOfReadRC(std::string& s, uint8_t k) {
             //ip += trimerCount_[key];//bloom_get(bloomFilt_.get(), key);
         }
     }
+    bloomMutex_.unlock();
 
     return ip;
 }
@@ -235,6 +236,7 @@ double BucketModel::scoreOfRead(std::string& s, uint8_t k, bool rc) {
 
     Kmer mer;
     mer.polyT();
+    bloomMutex_.lock();
 
     double ip{0.0};
     while (offset < s.size()) {
@@ -260,6 +262,8 @@ double BucketModel::scoreOfRead(std::string& s, uint8_t k, bool rc) {
         }
 
     }
+
+    bloomMutex_.unlock();
     return ip;
 }
 
