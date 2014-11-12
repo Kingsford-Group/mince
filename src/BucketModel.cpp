@@ -14,7 +14,7 @@ KmerSet::KmerSet()
     s_ = new std::set<uint16_t>();
 }
 
-KmerSet::KmerSet(const KmerSet& o) :
+/*KmerSet::KmerSet(const KmerSet& o) :
     storage_(o.storage), s_(0), bs_(0)
 {
     switch (storage_) {
@@ -26,8 +26,8 @@ KmerSet::KmerSet(const KmerSet& o) :
             bs_ = new boost::dynamic_bitset<>(o.bs_); 
             break;
     }
-    
 }
+*/
 
 // free up the current storage usage
 KmerSet::~KmerSet()
@@ -86,13 +86,43 @@ void KmerSet::convert_to_bs()
     bs_ = b;
 }
 
+void KmerSet::operator=(const KmerSet& o)
+{
+    // free any old storage
+    switch (storage_) {
+        case STO_SET:
+            delete s_;
+            break;
+
+        case STO_BS: 
+            delete bs_; 
+            break;
+    }
+    // copy o to this set
+    storage_ = o.storage_;
+    switch (storage_) {
+        case STO_SET:
+            (*s_) = *o.s_;
+            break;
+
+        case STO_BS: 
+            (*bs_) = *bs_;
+            break;
+    }
+}
+
 
 
 BucketModel::BucketModel() : count_(0), kmers_() {
     //bloomFilt_(bloom_alloc(500,8), bloom_free) {
 }
 
-BucketModel::BucketModel(const BucketModel& o) : count_(o.count_.load()), kmers_(o.kmers_) { //bloomFilt_(nullptr, bloom_free) {
+BucketModel::BucketModel(const BucketModel& o) : count_(o.count_.load()), kmers_() {
+    bloomMutex_.lock();
+    kmers_ = o.kmers_;
+    bloomMutex_.unlock();
+   
+    //bloomFilt_(nullptr, bloom_free) {
     /*
     bloomMutex_.lock();
     bloomFilt_.reset(bloom_copy(o.bloomFilt_.get()));
