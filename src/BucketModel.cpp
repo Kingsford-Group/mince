@@ -4,7 +4,74 @@
 
 #include "BucketModel.hpp"
 
-BucketModel::BucketModel() : count_(0), trimerCount_(boost::dynamic_bitset<>(65536)) {
+
+
+// Create a new kmer set, with a set backing to start
+KmerSet::KmerSet() 
+    : storage_(STO_SET) 
+{
+    s_ = new std::set<uint16_t>();
+}
+
+// free up the current storage usage
+KmerSet::~KmerSet()
+{
+    switch (storage_) {
+        case STO_SET:
+            delete s_;
+            break;
+
+        case STO_BS: 
+            delete bs_; 
+            break;
+    }
+}
+
+// add k to the set
+void KmerSet::add(kmer_t k) 
+{
+    switch (storage_) {
+        case STO_SET:
+            s_->insert(k);
+            if (s_->size() > XXX) {
+                convert_to_bs();
+            }
+            break;
+
+        case STO_BS: 
+            bs_[k] = 1;
+            break;
+    }
+}
+
+
+// return 1 if set contains k, 0 otherwise
+int KmerSet::contains(kmer_t k) 
+{
+    switch (storage_) {
+        case STO_SET:
+            return (s_->find(k) != s_->end())?1:0;
+
+        case STO_BS: 
+            return bs_[k];
+    }
+}
+
+void KmerSet::convert_to_bs() 
+{
+    boost::dynamic_bitset<>* b = new boost::dynamic_bitset<>(65536);
+    for (auto & k : *s_) {
+        (*b)[k] = 1;
+    }
+    storage_ = STO_BS;
+    delete s_;
+    s_ = nullptr;
+    bs_ = b;
+}
+
+
+
+BucketModel::BucketModel() : count_(0), kmers_() {
     //bloomFilt_(bloom_alloc(500,8), bloom_free) {
 }
 
@@ -62,7 +129,8 @@ void BucketModel::addRead(std::string& s, uint8_t k) {
                 bloom_inc(bloomFilt_.get(), key);
             }
             */
-            trimerCount_[key] = 1;
+            //trimerCount_[key] = 1;
+            kmers_.add(key);
         }
     }
     bloomMutex_.unlock();
@@ -96,7 +164,8 @@ double BucketModel::scoreOfReadRC(std::string& s, uint8_t k) {
         if (++cmlen >= kl) {
             cmlen = kl;
             kmer_t key = mer.get_bits(0, 2*kl);
-            ip += trimerCount_[key];//bloom_get(bloomFilt_.get(), key);
+            ip += kmers_.contains(key);
+            //ip += trimerCount_[key];//bloom_get(bloomFilt_.get(), key);
         }
     }
 
@@ -137,6 +206,7 @@ double BucketModel::scoreOfRead(std::string& s, uint8_t k, bool rc) {
         if (++cmlen >= kl) {
             cmlen = kl;
             kmer_t key = mer.get_bits(0, 2*kl);
+            ip += kmers_.contains(key);
             ip += trimerCount_[key];//bloom_get(bloomFilt_.get(), key);
         }
 

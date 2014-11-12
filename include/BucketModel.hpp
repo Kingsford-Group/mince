@@ -17,6 +17,26 @@ extern "C" {
 using Kmer = jellyfish::mer_dna_ns::mer_base_static<uint64_t, 3>;
 using kmer_t = uint64_t;
 
+class KmerSet {
+public:
+   void add(kmer_t k);
+   int contains(kmer_t k);
+
+protected:
+   /*void add_set(kmer_t k);
+   bool contains_set(kmer_t k);
+   void add_bs(kmer_t k);
+   void contains_bs(kmer_t k); */
+   void convert_to_bs();
+          
+private: 
+   union {
+       std::set<uint16_t> *s_;
+       boost::dynamic_bitset<>* bs_;
+   };
+   enum { STO_SET, STO_BS } storage_;
+};       
+
 class BucketModel {
     public:
         BucketModel();
@@ -31,7 +51,8 @@ class BucketModel {
     private:
         std::atomic<uint64_t> count_;
         //std::vector<std::atomic<uint32_t>> trimerCount_;
-        boost::dynamic_bitset<> trimerCount_;
+        //boost::dynamic_bitset<> trimerCount_;
+        KmerSet kmers_;
         std::mutex bloomMutex_;
         //std::unique_ptr<bloom_t, void(*)(bloom_t*)> bloomFilt_;
 };
