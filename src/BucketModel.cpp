@@ -2,6 +2,7 @@
 #include <iostream>
 #include <algorithm>
 
+
 #include "BucketModel.hpp"
 
 
@@ -33,7 +34,7 @@ void KmerSet::add(kmer_t k)
     switch (storage_) {
         case STO_SET:
             s_->insert(k);
-            if (s_->size() > XXX) {
+            if (s_->size() > 4096) {
                 convert_to_bs();
             }
             break;
