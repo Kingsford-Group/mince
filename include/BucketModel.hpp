@@ -21,6 +21,7 @@ using kmer_t = uint64_t;
 class KmerSet {
 public:
    KmerSet();
+   KmerSet(const KmerSet& o);
    ~KmerSet();
    void add(kmer_t k);
    int contains(kmer_t k);

@@ -14,10 +14,24 @@ KmerSet::KmerSet()
     s_ = new std::set<uint16_t>();
 }
 
+KmerSet::KmerSet(const KmerSet& o) :
+    storage_(o.storage), s_(0), bs_(0)
+{
+    switch (storage_) {
+        case STO_SET:
+            s_ = new std::set<uint16_t>(o.s_);
+            break;
+
+        case STO_BS: 
+            bs_ = new boost::dynamic_bitset<>(o.bs_); 
+            break;
+    }
+    
+}
+
 // free up the current storage usage
 KmerSet::~KmerSet()
 {
-    std::cerr << "freeing kmer set" << std::endl;
     switch (storage_) {
         case STO_SET:
             delete s_;
@@ -67,7 +81,6 @@ void KmerSet::convert_to_bs()
         (*b)[k] = 1;
     }
     storage_ = STO_BS;
-    std::cerr << "converting..." << std::endl;
     delete s_;
     s_ = nullptr;
     bs_ = b;
