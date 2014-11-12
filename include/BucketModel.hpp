@@ -30,10 +30,8 @@ protected:
    void convert_to_bs();
           
 private: 
-   union {
-       std::set<uint16_t> *s_;
+       std::set<uint16_t>* s_;
        boost::dynamic_bitset<>* bs_;
-   };
    enum { STO_SET, STO_BS } storage_;
 };       
 

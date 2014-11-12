@@ -39,7 +39,7 @@ void KmerSet::add(kmer_t k)
             break;
 
         case STO_BS: 
-            bs_[k] = 1;
+            (*bs_)[k] = 1;
             break;
     }
 }
@@ -53,8 +53,9 @@ int KmerSet::contains(kmer_t k)
             return (s_->find(k) != s_->end())?1:0;
 
         case STO_BS: 
-            return bs_[k];
+            return (*bs_)[k];
     }
+    return 0;
 }
 
 void KmerSet::convert_to_bs() 
@@ -75,7 +76,7 @@ BucketModel::BucketModel() : count_(0), kmers_() {
     //bloomFilt_(bloom_alloc(500,8), bloom_free) {
 }
 
-BucketModel::BucketModel(const BucketModel& o) : count_(o.count_.load()), trimerCount_(o.trimerCount_) { //bloomFilt_(nullptr, bloom_free) {
+BucketModel::BucketModel(const BucketModel& o) : count_(o.count_.load()), kmers_(o.kmers_) { //bloomFilt_(nullptr, bloom_free) {
     /*
     bloomMutex_.lock();
     bloomFilt_.reset(bloom_copy(o.bloomFilt_.get()));
