@@ -17,6 +17,7 @@ KmerSet::KmerSet()
 // free up the current storage usage
 KmerSet::~KmerSet()
 {
+    std::cerr << "freeing kmer set" << std::endl;
     switch (storage_) {
         case STO_SET:
             delete s_;
@@ -66,6 +67,7 @@ void KmerSet::convert_to_bs()
         (*b)[k] = 1;
     }
     storage_ = STO_BS;
+    std::cerr << "converting..." << std::endl;
     delete s_;
     s_ = nullptr;
     bs_ = b;
