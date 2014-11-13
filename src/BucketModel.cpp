@@ -12,7 +12,7 @@ KmerSet::KmerSet()
     : storage_(STO_VEC) 
 {
     //s_ = new std::set<uint16_t>();
-    v_ = new std::set<uint16_t>();
+    v_ = new std::vector<uint16_t>();
 }
 
 /*KmerSet::KmerSet(const KmerSet& o) :
