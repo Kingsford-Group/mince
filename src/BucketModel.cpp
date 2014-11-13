@@ -54,7 +54,7 @@ void KmerSet::add(kmer_t k)
     switch (storage_) {
         case STO_VEC:
             v_->push_back(k);
-            if (s_->size() > 2024) {
+            if (v_->size() > 2024) {
                 convert_to_bs();
             }
             break;
