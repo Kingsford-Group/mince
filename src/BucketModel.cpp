@@ -49,7 +49,7 @@ void KmerSet::add(kmer_t k)
     switch (storage_) {
         case STO_SET:
             s_->insert(k);
-            if (s_->size() > 128) {
+            if (s_->size() > 512) {
                 convert_to_bs();
             }
             break;
