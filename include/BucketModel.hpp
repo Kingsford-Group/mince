@@ -37,7 +37,8 @@ protected:
 private: 
        std::set<uint16_t>* s_;
        boost::dynamic_bitset<>* bs_;
-   enum { STO_SET, STO_BS } storage_;
+       std::vector<uint16_t>* v_;
+   enum { STO_SET, STO_BS, STO_VEC } storage_;
 };       
 
 class BucketModel {

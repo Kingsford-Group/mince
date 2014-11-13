@@ -9,9 +9,10 @@
 
 // Create a new kmer set, with a set backing to start
 KmerSet::KmerSet() 
-    : storage_(STO_SET) 
+    : storage_(STO_VEC) 
 {
-    s_ = new std::set<uint16_t>();
+    //s_ = new std::set<uint16_t>();
+    v_ = new std::set<uint16_t>();
 }
 
 /*KmerSet::KmerSet(const KmerSet& o) :
@@ -33,6 +34,10 @@ KmerSet::KmerSet()
 KmerSet::~KmerSet()
 {
     switch (storage_) {
+        case STO_VEC:
+            delete v_;
+            break;
+
         case STO_SET:
             delete s_;
             break;
@@ -47,9 +52,16 @@ KmerSet::~KmerSet()
 void KmerSet::add(kmer_t k) 
 {
     switch (storage_) {
+        case STO_VEC:
+            v_->push_back(k);
+            if (s_->size() > 2024) {
+                convert_to_bs();
+            }
+            break;
+
         case STO_SET:
             s_->insert(k);
-            if (s_->size() > 512) {
+            if (s_->size() > 128) {
                 convert_to_bs();
             }
             break;
@@ -65,6 +77,9 @@ void KmerSet::add(kmer_t k)
 int KmerSet::contains(kmer_t k) 
 {
     switch (storage_) {
+        case STO_VEC:
+            return (v_->find(k) != v_->end())?1:0;
+
         case STO_SET:
             return (s_->find(k) != s_->end())?1:0;
 
@@ -90,6 +105,10 @@ void KmerSet::operator=(const KmerSet& o)
 {
     // free any old storage
     switch (storage_) {
+        case STO_VEC:
+            delete v_;
+            break;
+
         case STO_SET:
             delete s_;
             break;
@@ -101,6 +120,10 @@ void KmerSet::operator=(const KmerSet& o)
     // copy o to this set
     storage_ = o.storage_;
     switch (storage_) {
+        case STO_VEC:
+            v_ = new std::vector<uint16_t>(*o.v_);
+            break;
+
         case STO_SET:
             s_ = new std::set<uint16_t>(*o.s_);
             break;
@@ -144,6 +167,39 @@ void BucketModel::addCount(uint32_t inc) {
 void BucketModel::subCount(uint32_t inc) {
     count_ -= inc;
 }
+
+/*
+// crete a hash of mini-mers for this read
+stl::unordered_set<uint16_t> BucketModel::readHash(std::string& s, uint8_t k) {
+    size_t offset{0};
+    size_t kl{k};
+    size_t cmlen{0};
+    stl::unordered_set<uint16_t> h;
+
+    while (offset < s.size()) {
+        // Get the code for the next base
+        int c = jellyfish::mer_dna::code(s[offset]);
+
+        // If it's not a valid DNA code
+        if (jellyfish::mer_dna::not_dna(c)) {
+            // Switch it to an 'A' in the mer
+            c = jellyfish::mer_dna::code('A');
+            mer.shift_left(c);
+        } else { // Otherwise, base is legit
+            mer.shift_left(c);
+        }
+
+        ++offset;
+        // If we've read a full k-mer
+        if (++cmlen >= kl) {
+            cmlen = kl;
+            kmer_t key = mer.get_bits(0, 2*kl);
+            h.insert(key);
+        }
+    }
+    return h;
+}
+*/
 
 void BucketModel::addRead(std::string& s, uint8_t k) {
     size_t offset{0};
