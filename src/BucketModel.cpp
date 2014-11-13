@@ -92,9 +92,19 @@ int KmerSet::contains(kmer_t k)
 void KmerSet::convert_to_bs() 
 {
     boost::dynamic_bitset<>* b = new boost::dynamic_bitset<>(65536);
-    for (auto & k : *s_) {
-        (*b)[k] = 1;
+    switch (storage_) {
+        case STO_SET:
+            for (auto & k : *s_) {
+                (*b)[k] = 1;
+            }
+            break;
+        case STO_VEC:
+            for (auto & k : *v_) {
+                (*b)[k] = 1;
+            }
+            break;
     }
+
     storage_ = STO_BS;
     delete s_;
     s_ = nullptr;
