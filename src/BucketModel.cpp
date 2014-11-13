@@ -78,7 +78,7 @@ int KmerSet::contains(kmer_t k)
 {
     switch (storage_) {
         case STO_VEC:
-            return std::find(v_->begin(), v->end(), item)!=v_->end()?1:0;
+            return std::find(v_->begin(), v->end(), k)!=v_->end()?1:0;
 
         case STO_SET:
             return (s_->find(k) != s_->end())?1:0;
