@@ -148,7 +148,7 @@ void KmerSet::operator=(const KmerSet& o)
 }
 
 // return the score of read as represented by the hashed kmers
-double KmerSet::scoreOfRead(std::unsorted_set<uint8_t>& h, uint8_t k) {
+double KmerSet::scoreOfRead(std::unordered_set<uint8_t>& h, uint8_t k) {
     double ip{0.0};
     if (storage_ == STO_VEC) {
         // loop throuh all the kmers in this set and return the number that
@@ -278,7 +278,7 @@ void BucketModel::addRead(std::string& s, uint8_t k) {
     count_ += 1;
 }
 
-double BucketModel::scoreOfRead(std::unsorted_set<uint8_t>& h, uint8_t k) {
+double BucketModel::scoreOfRead(std::unordered_set<uint8_t>& h, uint8_t k) {
     return kmers_.scoreOfRead(h, k); 
 }
 
