@@ -27,7 +27,7 @@ public:
    void add(kmer_t k);
    int contains(kmer_t k);
    void operator=(const KmerSet& o);
-   double scoreOfRead(std::unordered_set<uint8_t>& h, uint8_t k);
+   double scoreOfRead(std::unordered_set<uint16_t>& h, uint8_t k);
 
 protected:
    /*void add_set(kmer_t k);
@@ -52,7 +52,7 @@ class BucketModel {
         void subCount(uint32_t inc=1);
         //double scoreOfReadRC(std::string& s, uint8_t k);
         //double scoreOfRead(std::string& s, uint8_t k, bool rc);
-        double scoreOfRead(std::unordered_set<uint8_t>& h, uint8_t k);
+        double scoreOfRead(std::unordered_set<uint16_t>& h, uint8_t k);
         void addRead(std::string& s, uint8_t k);
 
         static std::unordered_set<uint16_t> readHash(std::string& s, uint8_t k, bool rc);
