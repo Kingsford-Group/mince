@@ -124,8 +124,8 @@ void bucketReads(sequence_parser* parser, std::atomic<uint64_t>* total,
 
             size_t readLength{s.length()};
             std::map<uint32_t, std::tuple<uint8_t, Direction>> merOffsetMap;
-            std::unordered_set<uint16_t> sforward = BucketModel::readHash(s, 8, false);
-            std::unordered_set<uint16_t> sreverse = BucketModel::readHash(s, 8, true);
+            //std::unordered_set<uint16_t> sforward = BucketModel::readHash(s, 8, false);
+            //std::unordered_set<uint16_t> sreverse = BucketModel::readHash(s, 8, true);
 
             size_t offset{0};
             size_t roffset{readLength};
@@ -189,13 +189,13 @@ void bucketReads(sequence_parser* parser, std::atomic<uint64_t>* total,
                     auto dir = std::get<1>(kv.second);
                     bool rc = dir == Direction::REVERSE;
                     //auto& fvec = (dir == Direction::REVERSE) ? featVecRC : featVec;
-                    double score;
+                    /*double score;
                     if (rc) {
                         score = cit->second.scoreOfRead(sreverse, 8);
                     } else {
                         score = cit->second.scoreOfRead(sforward, 8);
-                    }
-                    //double score = cit->second.scoreOfRead( 8, rc);//fvec);
+                    }*/
+                    double score = cit->second.scoreOfRead( 8, rc);//fvec);
                     if (score > maxBucketValue) {
                         maxBucketValue = score;
                         maxBucketDirection = std::get<1>(kv.second);
@@ -260,8 +260,8 @@ void reassignOnsies(
         auto& bs = std::get<1>(kr);
         std::string s = bs.str;
         // pre-compute the hash of the minimers of s and rc(s)
-        std::unordered_set<uint16_t> sforward = BucketModel::readHash(s, 8, false);
-        std::unordered_set<uint16_t> sreverse = BucketModel::readHash(s, 8, true);
+        //std::unordered_set<uint16_t> sforward = BucketModel::readHash(s, 8, false);
+        //std::unordered_set<uint16_t> sreverse = BucketModel::readHash(s, 8, true);
 
         std::vector<uint8_t>& nlocs = bs.nlocs;
         size_t readLength{s.length()};
@@ -326,13 +326,14 @@ void reassignOnsies(
                 auto dir = std::get<1>(kv.second);
                 bool rc = dir == Direction::REVERSE;
                 //auto& fvec = (dir == Direction::REVERSE) ? featVecRC : featVec;
+                /*
                 double score;
                 if (rc) {
                     score = cit->second.scoreOfRead(sreverse, 8);
                 } else {
                     score = cit->second.scoreOfRead(sforward, 8);
-                }
-                //double score = cit->second.scoreOfRead(s, 8, rc);//fvec);
+                }*/
+                double score = cit->second.scoreOfRead(s, 8, rc);//fvec);
                 if (score > maxBucketValue) {
                     maxBucketValue = score;
                     maxBucketDirection = std::get<1>(kv.second);

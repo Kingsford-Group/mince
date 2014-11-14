@@ -97,19 +97,21 @@ void KmerSet::convert_to_bs()
             for (auto & k : *s_) {
                 (*b)[k] = 1;
             }
+            delete s_;
+            s_ = nullptr;
             break;
         case STO_VEC:
             for (auto & k : *v_) {
                 (*b)[k] = 1;
             }
+            delete v_;
+            v_ = nullptr;
             break;
         case STO_BS:
             return;
     }
 
     storage_ = STO_BS;
-    delete s_;
-    s_ = nullptr;
     bs_ = b;
 }
 
@@ -148,6 +150,7 @@ void KmerSet::operator=(const KmerSet& o)
 }
 
 // return the score of read as represented by the hashed kmers
+/*
 double KmerSet::scoreOfRead(std::unordered_set<uint16_t>& h, uint8_t k) {
     double ip{0.0};
     if (storage_ == STO_VEC) {
@@ -165,7 +168,7 @@ double KmerSet::scoreOfRead(std::unordered_set<uint16_t>& h, uint8_t k) {
     }
     return ip;
 }
-
+*/
 
 BucketModel::BucketModel() : count_(0), kmers_() {
     //bloomFilt_(bloom_alloc(500,8), bloom_free) {
@@ -198,6 +201,7 @@ void BucketModel::subCount(uint32_t inc) {
     count_ -= inc;
 }
 
+/*
 // crete a hash of mini-mers for this read
 std::unordered_set<uint16_t> BucketModel::readHash(std::string& s, uint8_t k, bool rc) {
     size_t offset{0};
@@ -239,6 +243,7 @@ std::unordered_set<uint16_t> BucketModel::readHash(std::string& s, uint8_t k, bo
     }
     return h;
 }
+*/
 
 void BucketModel::addRead(std::string& s, uint8_t k) {
     size_t offset{0};
@@ -281,11 +286,11 @@ void BucketModel::addRead(std::string& s, uint8_t k) {
     count_ += 1;
 }
 
+/*
 double BucketModel::scoreOfRead(std::unordered_set<uint16_t>& h, uint8_t k) {
     return kmers_.scoreOfRead(h, k); 
-}
+}*/
 
-/*
 
 double BucketModel::scoreOfReadRC(std::string& s, uint8_t k) {
     auto start = s.begin();
@@ -367,7 +372,6 @@ double BucketModel::scoreOfRead(std::string& s, uint8_t k, bool rc) {
     bloomMutex_.unlock();
     return ip;
 }
-*/
 
 
 
