@@ -54,7 +54,7 @@ void KmerSet::add(kmer_t k)
     switch (storage_) {
         case STO_VEC:
             v_->push_back(k);
-            if (v_->size() > 2024) {
+            if (v_->size() > 2048) {
                 convert_to_bs();
             }
             break;
@@ -103,6 +103,8 @@ void KmerSet::convert_to_bs()
                 (*b)[k] = 1;
             }
             break;
+        case STO_BS:
+            return;
     }
 
     storage_ = STO_BS;
@@ -145,6 +147,24 @@ void KmerSet::operator=(const KmerSet& o)
     }
 }
 
+// return the score of read as represented by the hashed kmers
+double KmerSet::scoreOfRead(std::unsorted_set<uint8_t>& h, uint8_t k) {
+    double ip{0.0};
+    if (storage_ == STO_VEC) {
+        // loop throuh all the kmers in this set and return the number that
+        // are in the read
+        for (auto & k : *v_) {
+            if (h.find(k) != h.end()) ip++;
+        }
+    } else if (storage_ == STO_BS) {
+        // loop through all the kmers in this read, and return the number in
+        // the bitset
+        for (auto & k : h) {
+            if ((*bs_)[k] == 1) ip++;
+        }
+    }
+    return ip;
+}
 
 
 BucketModel::BucketModel() : count_(0), kmers_() {
@@ -178,9 +198,8 @@ void BucketModel::subCount(uint32_t inc) {
     count_ -= inc;
 }
 
-/*
 // crete a hash of mini-mers for this read
-stl::unordered_set<uint16_t> BucketModel::readHash(std::string& s, uint8_t k) {
+stl::unordered_set<uint16_t> BucketModel::readHash(std::string& s, uint8_t k, bool rc) {
     size_t offset{0};
     size_t kl{k};
     size_t cmlen{0};
@@ -194,9 +213,17 @@ stl::unordered_set<uint16_t> BucketModel::readHash(std::string& s, uint8_t k) {
         if (jellyfish::mer_dna::not_dna(c)) {
             // Switch it to an 'A' in the mer
             c = jellyfish::mer_dna::code('A');
-            mer.shift_left(c);
+            if (rc) {
+                mer.shift_right(c);
+            } else {
+                mer.shift_left(c);
+            }
         } else { // Otherwise, base is legit
-            mer.shift_left(c);
+            if (rc) {
+                mer.shift_right(jellyfish::mer_dna::complement(c));
+            } else {
+                mer.shift_left(c);
+            }
         }
 
         ++offset;
@@ -209,7 +236,6 @@ stl::unordered_set<uint16_t> BucketModel::readHash(std::string& s, uint8_t k) {
     }
     return h;
 }
-*/
 
 void BucketModel::addRead(std::string& s, uint8_t k) {
     size_t offset{0};
@@ -251,6 +277,12 @@ void BucketModel::addRead(std::string& s, uint8_t k) {
 
     count_ += 1;
 }
+
+double BucketModel::scoreOfRead(std::unsorted_set<uint8_t>& h, uint8_t k) {
+    return kmers_.scoreOfRead(h, k); 
+}
+
+/*
 
 double BucketModel::scoreOfReadRC(std::string& s, uint8_t k) {
     auto start = s.begin();
@@ -332,6 +364,9 @@ double BucketModel::scoreOfRead(std::string& s, uint8_t k, bool rc) {
     bloomMutex_.unlock();
     return ip;
 }
+*/
+
+
 
 
 /*
