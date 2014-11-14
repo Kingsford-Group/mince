@@ -199,11 +199,11 @@ void BucketModel::subCount(uint32_t inc) {
 }
 
 // crete a hash of mini-mers for this read
-stl::unordered_set<uint16_t> BucketModel::readHash(std::string& s, uint8_t k, bool rc) {
+std::unordered_set<uint16_t> BucketModel::readHash(std::string& s, uint8_t k, bool rc) {
     size_t offset{0};
     size_t kl{k};
     size_t cmlen{0};
-    stl::unordered_set<uint16_t> h;
+    std::unordered_set<uint16_t> h;
 
     while (offset < s.size()) {
         // Get the code for the next base

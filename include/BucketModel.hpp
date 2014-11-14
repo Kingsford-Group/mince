@@ -55,7 +55,7 @@ class BucketModel {
         double scoreOfRead(std::unordered_set<uint8_t>& h, uint8_t k);
         void addRead(std::string& s, uint8_t k);
 
-        static stl::unordered_set<uint16_t> readHash(std::string& s, uint8_t k, bool rc);
+        static std::unordered_set<uint16_t> readHash(std::string& s, uint8_t k, bool rc);
 
     private:
         std::atomic<uint64_t> count_;
