@@ -195,7 +195,7 @@ void bucketReads(sequence_parser* parser, std::atomic<uint64_t>* total,
                     } else {
                         score = cit->second.scoreOfRead(sforward, 8);
                     }*/
-                    double score = cit->second.scoreOfRead( 8, rc);//fvec);
+                    double score = cit->second.scoreOfRead(s, 8, rc);//fvec);
                     if (score > maxBucketValue) {
                         maxBucketValue = score;
                         maxBucketDirection = std::get<1>(kv.second);
