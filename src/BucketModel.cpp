@@ -205,6 +205,9 @@ std::unordered_set<uint16_t> BucketModel::readHash(std::string& s, uint8_t k, bo
     size_t cmlen{0};
     std::unordered_set<uint16_t> h;
 
+    Kmer mer;
+    mer.polyT();
+
     while (offset < s.size()) {
         // Get the code for the next base
         int c = jellyfish::mer_dna::code(s[offset]);
@@ -214,7 +217,7 @@ std::unordered_set<uint16_t> BucketModel::readHash(std::string& s, uint8_t k, bo
             // Switch it to an 'A' in the mer
             c = jellyfish::mer_dna::code('A');
             if (rc) {
-                mer.shift_right(c);
+                mer.shift_right(jellyfish::mer_dna::complement(c));
             } else {
                 mer.shift_left(c);
             }
