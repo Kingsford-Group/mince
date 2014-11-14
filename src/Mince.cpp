@@ -8,6 +8,7 @@
 #include <functional>
 #include <cmath>
 #include <mutex>
+#include <unordered_set>
 
 #include <boost/dynamic_bitset.hpp>
 #include <boost/program_options.hpp>

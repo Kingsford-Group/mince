@@ -6,6 +6,7 @@
 #include <mutex>
 #include <memory>
 #include <set>
+#include <unordered_set>
 
 #include <boost/dynamic_bitset.hpp>
 
