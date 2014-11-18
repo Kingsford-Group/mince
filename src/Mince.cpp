@@ -420,7 +420,7 @@ int main(int argc, char *argv[]) {
       ("libtype,l", po::value<string>(), "library format string [only for encoding]")
       ("mates1,1", po::value<std::vector<string>>(), "mate file 1 [only for encoding]")
       ("mates2,2", po::value<std::vector<string>>(), "mate file 2 [only for encoding]")
-      ("reads,r", po::value<std::vector<string>>(), "unmated reads [only for encoding]")
+      ("unmated_reads,r", po::value<std::vector<string>>(), "unmated reads [only for encoding]")
       ("input,i", po::value<string>(), "input base file [only for encoding]")
       ("output,o", po::value<string>(), "output base file [for both encoding / decoding]")
       ("blength,b", po::value<uint32_t>(&bucketStringLength)->default_value(15) , "length of the bucket string [1,16]")

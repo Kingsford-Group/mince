@@ -5,6 +5,7 @@
 #include <fstream>
 #include <cstdio>
 #include <cctype>
+#include <atomic>
 #include <locale>
 
 #include <boost/range/join.hpp>
