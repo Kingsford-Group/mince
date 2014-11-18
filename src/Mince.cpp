@@ -28,9 +28,11 @@
 #include "FindPartition.hpp"
 #include "Decoder.hpp"
 #include "BucketModel.hpp"
+#include "PairSequenceParser.hpp"
 
-typedef jellyfish::stream_manager<char**>                stream_manager;
-typedef jellyfish::whole_sequence_parser<stream_manager> sequence_parser;
+using pair_parser = pair_sequence_parser<char**>;
+using stream_manager = jellyfish::stream_manager<char**>;
+using sequence_parser = jellyfish::whole_sequence_parser<stream_manager>;
 
 enum Direction { FORWARD, REVERSE };
 
@@ -87,8 +89,31 @@ using CountMap = tbb::concurrent_unordered_map<uint32_t, BucketModel>;
 using my_mer = jellyfish::mer_dna_ns::mer_base_static<uint64_t, 1>;
 using MapT = std::map<my_mer, std::vector<BucketedString>>;
 
-template <typename MerT>
-void bucketReads(sequence_parser* parser, std::atomic<uint64_t>* total,
+std::string getSequence(std::pair<header_sequence_qual, header_sequence_qual>& rpair, const ReadLibrary& rl) {
+
+	switch(rl.format().orientation) {
+		case ReadOrientation::TOWARD:
+			mince::utils::reverseComplement(rpair.second.seq);
+			//std::reverse(rp.second.qual.begin(), rp.second.qual.end());
+			return rpair.first.seq + rpair.second.seq;
+		case ReadOrientation::AWAY:
+			mince::utils::reverseComplement(rpair.second.seq);
+			//std::reverse(rp.second.qual.begin(), rp.second.qual.end());
+			return rpair.first.seq + rpair.second.seq;
+		case ReadOrientation::SAME:
+			return rpair.first.seq + rpair.second.seq;
+		default:
+			return rpair.first.seq + rpair.second.seq;
+	}
+
+}
+
+std::string getSequence(jellyfish::header_sequence_qual& hsq, const ReadLibrary& rl) {
+	return hsq.seq;
+}
+
+template <typename MerT,typename ParserT>
+void bucketReads(ParserT* parser, ReadLibrary& rl, std::atomic<uint64_t>* total,
         std::atomic<uint64_t>& totReads,
         MapT& buckets,
         CountMap& countMap,
@@ -101,7 +126,7 @@ void bucketReads(sequence_parser* parser, std::atomic<uint64_t>* total,
     unsigned int cmlen{0};
 
     while(true) {
-        sequence_parser::job j(*parser); // Get a job from the parser: a bunch of read (at most max_read_group)
+        typename ParserT::job j(*parser); // Get a job from the parser: a bunch of read (at most max_read_group)
         if(j.is_empty()) break;          // If got nothing, quit
 
         for(size_t i = 0; i < j->nb_filled; ++i) { // For all the read we got
@@ -110,7 +135,8 @@ void bucketReads(sequence_parser* parser, std::atomic<uint64_t>* total,
                 std::cerr << "\r\rprocessed " << totReads << " reads";
                 iomutex.unlock();
             }
-            std::string s(j->data[i].seq);
+            //std::string s(j->data[i].seq);
+	    std::string s(getSequence(j->data[i], rl));
 
             count += s.size();        // Add up the size of the sequence
 
@@ -390,8 +416,13 @@ int main(int argc, char *argv[]) {
   generic.add_options()
       ("version,v", "print version information")
       ("help,h", "print help message")
-      ("input,i", po::value<string>(), "input file; FASTA/Q if encoding, MINCE if decoding")
-      ("output,o", po::value<string>(), "output base file")
+      //("input,i", po::value<string>(), "input file; FASTA/Q if encoding, MINCE if decoding")
+      ("libtype,l", po::value<string>(), "library format string [only for encoding]")
+      ("mates1,1", po::value<std::vector<string>>(), "mate file 1 [only for encoding]")
+      ("mates2,2", po::value<std::vector<string>>(), "mate file 2 [only for encoding]")
+      ("reads,r", po::value<std::vector<string>>(), "unmated reads [only for encoding]")
+      ("input,i", po::value<string>(), "input base file [only for encoding]")
+      ("output,o", po::value<string>(), "output base file [for both encoding / decoding]")
       ("blength,b", po::value<uint32_t>(&bucketStringLength)->default_value(15) , "length of the bucket string [1,16]")
       ("norc,n", po::bool_switch(&noRC)->default_value(false), "don't allow reverse complementing when encoding / bucketing")
       ("encode,e", po::bool_switch(&doEncode)->default_value(false), "encode the input file")
@@ -451,12 +482,15 @@ Mince
           std::exit(0);
       }
 
+
+      /*
       // Currently only single-end or pre-merged paired-end reads
       // No reason we can't do the merging on the fly and accept paired-end reads directly
       char* input[] = { const_cast<char*>(vm["input"].as<string>().c_str()) };
 
       stream_manager  streams(input, input + 1, concurrent_file);
       sequence_parser parser(4 * nb_threads, max_read_group, concurrent_file, streams);
+      */
 
       std::string outfname = vm["output"].as<string>();
 
@@ -490,12 +524,57 @@ Mince
       CountMap countMap;
       std::vector<MapT> maps(nb_threads);
       LOG(INFO) << "Starting " << nb_threads << " read parsing threads";
-      // Spawn off the read parsing threads
-      for(int i = 0; i < nb_threads; ++i) {
-          threads.push_back(std::thread(bucketReads<my_mer>, &parser, &total,
-                                        std::ref(totReads), std::ref(maps[i]),
-                                        std::ref(countMap), bucketStringLength,
-                                        noRC, std::ref(iomutex)));
+
+      auto readLibraries = mince::utils::extractReadLibraries(orderedOptions);
+      assert(readLibraries.size() == 1);
+      for (auto& rl : readLibraries) {
+	      if (rl.format().type == ReadType::PAIRED_END) {
+		      std::vector<const char*> inputs;
+		      auto& m1 = rl.mates1();
+		      auto& m2 = rl.mates2();
+		      for (size_t i = 0; i < m1.size(); ++i) {
+			      inputs.push_back(m1[i].c_str());
+			      std::cerr << "merging " << inputs.back() << " with ";
+			      inputs.push_back(m2[i].c_str());
+			      std::cerr << inputs.back() << "\n";
+		      }
+
+		      char** start = const_cast<char**>(&(*inputs.begin()));
+		      char** stop = const_cast<char**>(&(*inputs.end()));
+		      pair_parser parser(4 * nb_threads, max_read_group, concurrent_file,
+				      start, stop);
+		      // Spawn off the read parsing threads
+		      for(int i = 0; i < nb_threads; ++i) {
+			      threads.push_back(std::thread(bucketReads<my_mer, pair_parser>, &parser, std::ref(rl), &total,
+						      std::ref(totReads), std::ref(maps[i]),
+						      std::ref(countMap), bucketStringLength,
+						      noRC, std::ref(iomutex)));
+		      }
+
+	      } else if (rl.format().type == ReadType::SINGLE_END) {
+
+		      std::vector<const char*> inputs;
+		      auto& m1 = rl.unmated();
+		      for (size_t i = 0; i < m1.size(); ++i) {
+			      inputs.push_back(m1[i].c_str());
+		      }
+
+		      char** start = const_cast<char**>(&(*inputs.begin()));
+		      char** stop = const_cast<char**>(&(*inputs.end()));
+		      stream_manager  streams(start, stop, concurrent_file);
+		      sequence_parser parser(4 * nb_threads, max_read_group, concurrent_file, streams);
+
+		      // Spawn off the read parsing threads
+		      for(int i = 0; i < nb_threads; ++i) {
+			      threads.push_back(std::thread(bucketReads<my_mer, sequence_parser>, &parser, std::ref(rl), &total,
+						      std::ref(totReads), std::ref(maps[i]),
+						      std::ref(countMap), bucketStringLength,
+						      noRC, std::ref(iomutex)));
+		      }
+
+	      }
+
+
       }
 
       // Join all of the read-parsing threads
@@ -617,6 +696,9 @@ Mince
       std::cerr << "rebucketed " << newTotal << " reads\n";
 
 
+      // The read library type
+      uint8_t rltype = readLibraries[0].format().formatID();
+      outfileSeqs.write(reinterpret_cast<char*>(&rltype), sizeof(rltype));
       // The length of the string on which we'll bucket
       uint8_t bslen = bucketStringLength;
       outfileSeqs.write(reinterpret_cast<char*>(&bslen), sizeof(bslen));

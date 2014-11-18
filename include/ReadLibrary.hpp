@@ -3,6 +3,7 @@
 
 #include <vector>
 #include <exception>
+#include <set>
 
 #include <boost/filesystem.hpp>
 
@@ -18,7 +19,34 @@ public:
     /**
      * Construct a new ReadLibrary of the given format
      */
-    ReadLibrary(LibraryFormat& fmt) : fmt_(fmt) {}
+    ReadLibrary(LibraryFormat& fmt) : fmt_(fmt),
+        libTypeCounts_(std::vector<std::atomic<uint64_t>>(LibraryFormat::maxLibTypeID() + 1)){}
+
+    /**
+     * Copy constructor
+     */
+    ReadLibrary(const ReadLibrary& rl) :
+        fmt_(rl.fmt_),
+        unmatedFilenames_(rl.unmatedFilenames_),
+        mateOneFilenames_(rl.mateOneFilenames_),
+        mateTwoFilenames_(rl.mateTwoFilenames_),
+        libTypeCounts_(std::vector<std::atomic<uint64_t>>(LibraryFormat::maxLibTypeID() + 1)) {
+            auto mc = LibraryFormat::maxLibTypeID() + 1;
+            for (size_t i = 0; i < mc; ++i) { libTypeCounts_[i].store(rl.libTypeCounts_[i].load()); }
+        }
+
+    /**
+     * Move constructor
+     */
+    ReadLibrary(ReadLibrary&& rl) :
+        fmt_(rl.fmt_),
+        unmatedFilenames_(std::move(rl.unmatedFilenames_)),
+        mateOneFilenames_(std::move(rl.mateOneFilenames_)),
+        mateTwoFilenames_(std::move(rl.mateTwoFilenames_)),
+        libTypeCounts_(std::vector<std::atomic<uint64_t>>(LibraryFormat::maxLibTypeID() + 1)) {
+            auto mc = LibraryFormat::maxLibTypeID() + 1;
+            for (size_t i = 0; i < mc; ++i) { libTypeCounts_[i].store(rl.libTypeCounts_[i].load()); }
+        }
 
     /**
      * Add files containing mated reads (from pair 1 of the mates) to this library.
@@ -52,12 +80,13 @@ public:
     bool checkFileExtensions_(std::vector<std::string>& filenames, std::stringstream& errorStream) {
         namespace bfs = boost::filesystem;
 
-        std::set<std::string> acceptableExensions = {".FASTA", ".FASTQ", ".FA", ".FQ"
+        std::set<std::string> acceptableExensions = {".FASTA", ".FASTQ", ".FA", ".FQ",
                                                      ".fasta", ".fastq", ".fa", ".fq"};
         bool extensionsOK{true};
         for (auto& fn : filenames) {
-            auto ext = bfs::path(fn).extension().string();
-            if (acceptableExensions.find(ext) == acceptableExensions.end()) {
+            auto fpath = bfs::path(fn);
+            auto ext = fpath.extension().string();
+            if (bfs::is_regular_file(fpath) and acceptableExensions.find(ext) == acceptableExensions.end()) {
                 errorStream << "ERROR: file " << fn << " has extension " << ext << ", "
                             << "which suggests it is neither a fasta nor a fastq file.\n"
                             << "Is this a compressed file?  If so, consider replacing: \n\n"
@@ -70,6 +99,49 @@ public:
         return extensionsOK;
     }
 
+    bool isRegularFile() {
+        if (isPairedEnd()) {
+            for (auto& m1 : mateOneFilenames_) {
+                if (!boost::filesystem::is_regular_file(m1)) { return false; }
+            }
+            for (auto& m2: mateTwoFilenames_) {
+                if (!boost::filesystem::is_regular_file(m2)) { return false; }
+            }
+        } else {
+            for (auto& um : unmatedFilenames_) {
+                if (!boost::filesystem::is_regular_file(um)) { return false; }
+            }
+        }
+        return true;
+    }
+
+    std::string readFilesAsString() {
+        std::stringstream sstr;
+        if (isPairedEnd()) {
+            size_t n1 = mateOneFilenames_.size();
+            size_t n2 = mateTwoFilenames_.size();
+            if (n1 == 0 or n2 == 0 or n1 != n2) {
+                sstr << "LIBRARY INVALID --- You must provide #1 and #2 mated read files with a paired-end library type";
+            } else {
+                for (size_t i = 0; i < n1; ++i) {
+                    sstr << "( " << mateOneFilenames_[i] << ", " <<
+                            mateTwoFilenames_[i] << " )";
+                    if (i != n1 - 1) { sstr << ", "; }
+                }
+            }
+        } else { // single end
+            size_t n = unmatedFilenames_.size();
+            if (n == 0) {
+                sstr << "LIBRARY INVALID --- You must provide unmated read files with a single-end library type";
+            } else {
+                for (size_t i = 0; i < n; ++i) {
+                    sstr << unmatedFilenames_[i];
+                    if (i != n - 1) { sstr << ", "; }
+                }
+            }
+        } // end else
+        return sstr.str();
+    }
 
     /**
      * Checks if this read library is valid --- if it's paired-end, it should have mate1/2 reads and the same
@@ -102,6 +174,10 @@ public:
 
         // Check if the user tried to pass in non-fast{a,q} files.  If so,
         // throw an exception with the appropriate error messages.
+        // NOTE: This check currently does nothing useful for non-regular files
+        // (i.e. named-pipes).  If the user passed in a non-regular file, we should
+        // have some other mechanism to check if it's of an expected format and provide
+        // a reasonable error message otherwise.
         readsOK = readsOK && checkFileExtensions_(mateOneFilenames_, errorStream);
         readsOK = readsOK && checkFileExtensions_(mateTwoFilenames_, errorStream);
         readsOK = readsOK && checkFileExtensions_(unmatedFilenames_, errorStream);
@@ -131,12 +207,26 @@ public:
      */
     const LibraryFormat& format() const { return fmt_; }
 
+    /**
+    * Update the library type counts for this read library given the counts
+    * in the vector `counts` which has been passed in.
+    */
+    inline void updateLibTypeCounts(const std::vector<uint64_t>& counts) {
+        size_t lc{counts.size()};
+        for (size_t i = 0; i < lc; ++i) { libTypeCounts_[i] += counts[i]; }
+    }
+
+    std::vector<std::atomic<uint64_t>>& libTypeCounts() {
+        return libTypeCounts_;
+    }
+
 private:
     LibraryFormat fmt_;
     std::vector<std::string> unmatedFilenames_;
     std::vector<std::string> mateOneFilenames_;
     std::vector<std::string> mateTwoFilenames_;
-    bool isPairedEnd_;
+    std::vector<std::atomic<uint64_t>> libTypeCounts_;
 };
 
 #endif // READ_LIBRARY_HPP
+

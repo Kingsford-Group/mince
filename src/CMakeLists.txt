@@ -42,7 +42,7 @@ ${TBB_LIBRARY_DIRS}
 )
 
 if(HAVE_LOGGER)
-    set (LOGGING_LIBS lib_g2logger lib_activeobject)
+	set (LOGGING_LIBS ${GAT_SOURCE_DIR}/external/install/lib/liblib_g2logger.a)
 else()
     set (LOGGING_LIBS )
 endif()
@@ -50,8 +50,20 @@ endif()
 message("TBB_LIBRARIES = ${TBB_LIBRARIES}")
 message("Boost_LIBRARIES = ${Boost_LIBRARIES}")
 
+# Set the RPATH 
+if (APPLE)
+    ## This DOES NOT do what I / any one sane, expects.  Setting the 
+    ## linker path on OSX is messed up.  Just tell the user to use 
+    ## DYLD_FALLBACK_LIBRARY_PATH for now
+    set(CMAKE_INSTALL_RPATH "@executable_path/../lib:@executable_path/../../lib:@executable_path/")
+else()
+    set(CMAKE_INSTALL_RPATH "$ORIGIN/../lib:$ORIGIN/../../lib:$ORIGIN/")
+endif()
+
+set(CMAKE_BUILD_WITH_INSTALL_RPATH TRUE)
+
 # Build the library
-add_library(minceutils SHARED MinceUtils.cpp LibraryFormat.cpp bitfile.cpp)
+add_library(minceutils STATIC MinceUtils.cpp LibraryFormat.cpp bitfile.cpp)
 
 # Build the mince executable
 add_executable(mince ${MINCE_SRCS})
@@ -70,11 +82,12 @@ target_link_libraries(mince
     minceutils
     ${Boost_LIBRARIES} 
     ${ZLIB_LIBRARY} 
-    jellyfish-2.0 
+    ${GAT_SOURCE_DIR}/external/install/lib/libjellyfish-2.0.a 
     pthread 
     m
     ${TBB_LIBRARIES}
     ${LOGGING_LIBS}
+    ${NON_APPLECLANG_LIBS}
 )
 
 # Link the executable
@@ -82,11 +95,12 @@ target_link_libraries(canonicalize
     minceutils
     ${Boost_LIBRARIES} 
     ${ZLIB_LIBRARY} 
-    jellyfish-2.0 
+    ${GAT_SOURCE_DIR}/external/install/lib/libjellyfish-2.0.a 
     pthread 
     m
     ${TBB_LIBRARIES}
     ${LOGGING_LIBS}
+    ${NON_APPLECLANG_LIBS}
 )
 
 # Link the executable
@@ -94,11 +108,12 @@ target_link_libraries(canoncmp
     minceutils
     ${Boost_LIBRARIES} 
     ${ZLIB_LIBRARY} 
-    jellyfish-2.0 
+    ${GAT_SOURCE_DIR}/external/install/lib/libjellyfish-2.0.a 
     pthread 
     m
     ${TBB_LIBRARIES}
     ${LOGGING_LIBS}
+    ${NON_APPLECLANG_LIBS}
 )
 
 
@@ -107,11 +122,12 @@ target_link_libraries(mergepairs
     minceutils
     ${Boost_LIBRARIES} 
     ${ZLIB_LIBRARY} 
-    jellyfish-2.0 
+    ${GAT_SOURCE_DIR}/external/install/lib/libjellyfish-2.0.a 
     pthread 
     m
     ${TBB_LIBRARIES}
     ${LOGGING_LIBS}
+    ${NON_APPLECLANG_LIBS}
 )
 
 IF(CMAKE_INSTALL_PREFIX_INITIALIZED_TO_DEFAULT)

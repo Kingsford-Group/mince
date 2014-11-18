@@ -4,7 +4,7 @@ enable_testing()
 
 project (Mince)
 
-set(CPACK_PACKAGE_VERSION "0.5.3")
+set(CPACK_PACKAGE_VERSION "0.5.0")
 set(CPACK_PACKAGE_VERSION_MAJOR "0")
 set(CPACK_PACKAGE_VERSION_MINOR "5")
 set(CPACK_PACKAGE_VERSION_PATCH "0")
@@ -18,6 +18,12 @@ set(CPACK_SOURCE_PACKAGE_FILE_NAME
   "${CMAKE_PROJECT_NAME}-${CPACK_PACKAGE_VERSION_MAJOR}.${CPACK_PACKAGE_VERSION_MINOR}.${CPACK_PACKAGE_VERSION_PATCH}-Source")
 
 set(CMAKE_MODULE_PATH ${CMAKE_MODULE_PATH} "${CMAKE_SOURCE_DIR}/cmake/Modules/")
+
+
+set (WARNING_IGNORE_FLAGS "-Wno-deprecated-register") 
+set (BOOST_CXX_FLAGS "-Wno-deprecated-register -std=c++11")
+## Prefer static to dynamic libraries
+SET(CMAKE_FIND_LIBRARY_SUFFIXES .a ${CMAKE_FIND_LIBRARY_SUFFIXES})
 
 ## Set the standard required compile flags
 set (CMAKE_CXX_FLAGS "-g -funroll-loops -fPIC -O3 -DHAVE_ANSI_TERM -DHAVE_SSTREAM -DHAVE_CONFIG_H -Wall -std=c++11 -Wno-unused-local-typedefs")
@@ -40,39 +46,57 @@ else()
    set (LIBMINCE_LINKER_FLAGS "")
 endif()
 
+set( BOOST_EXTRA_FLAGS "--layout=tagged" )
+## this get's set differently below if we 
+## are on clang & apple
+set (NON_APPLECLANG_LIBS gomp rt)
 
 ##
 # Compiler-specific C++11 activation.
 # http://stackoverflow.com/questions/10984442/how-to-detect-c11-support-of-a-compiler-with-cmake
 ##
+##
+# First take care of what to do if we have gcc
+##
 if ("${CMAKE_CXX_COMPILER_ID}" MATCHES "GNU")
     execute_process(
         COMMAND ${CMAKE_CXX_COMPILER} -dumpversion OUTPUT_VARIABLE GCC_VERSION)
-    if (NOT (GCC_VERSION VERSION_GREATER 4.7 OR GCC_VERSION VERSION_EQUAL 4.7))
+    # If we're on OSX
+    if (APPLE AND NOT (GCC_VERSION VERSION_GREATER 4.8.2 OR GCC_VERSION VERSION_EQUAL 4.8.2))
+        message(FATAL_ERROR "When building under OSX, ${PROJECT_NAME} requires "
+                            "either clang or g++ >= 4.8.2")
+    elseif (NOT (GCC_VERSION VERSION_GREATER 4.7 OR GCC_VERSION VERSION_EQUAL 4.7))
         message(FATAL_ERROR "${PROJECT_NAME} requires g++ 4.7 or greater.")
     endif ()
 
-    if (NOT APPLE OR 
-            GCC_VERSION VERSION_GREATER 4.8.2 OR
-            GCC_VERSION VERSION_EQUAL 4.8.2) 
-        #Perhaps the logger now works in both worlds
-        set (CMAKE_CXX_FLAGS "-DHAVE_LOGGER ${CMAKE_CXX_FLAGS}")
-        set (HAVE_LOGGER TRUE)
-    else()
-        message(WARNING "Logging requires gcc >= 4.8.2 on OSX; it will be disabled")
-    endif()
+    set (GCC TRUE)
+    #Perhaps the logger now works in both worlds
+    set (CMAKE_CXX_FLAGS "-DHAVE_LOGGER ${CMAKE_CXX_FLAGS}")
+    set (HAVE_LOGGER TRUE)
 
-
+    set(WARNING_IGNORE_FLAGS "${WARNING_IGNORE_FLAGS} -Wno-unused-local-typedefs")
     set (BOOST_CONFIGURE_TOOLSET "")
     set (BOOST_EXTRA_FLAGS "")
+    # Tentatively, we support clang now
 elseif ("${CMAKE_CXX_COMPILER_ID}" MATCHES "Clang")
-    # On OSX, if we compile with clang, we want to use libc++ instead of libstdc++
+    set(CLANG TRUE)
+    # If we're on OSX using clang, try to use libc++ instead of libstdc++
     if (APPLE)
-        set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -stdlib=libc++")
+        set (CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -stdlib=libc++")
+        set (BOOST_CONFIGURE_TOOLSET "--with-toolset=clang")
         set (BOOST_EXTRA_FLAGS toolset=clang cxxflags="-stdlib=libc++"  linkflags="-stdlib=libc++")
     endif()
-    set (BOOST_CONFIGURE_TOOLSET "--with-toolset=clang")
+    # There's currently a bug with clang-3.4 & Boost 1.55 -- this hack fixes it
+    # but we should do something better (does this break things if CPU doesn't
+    # have 128-bit support)?
+    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -DBOOST_HAS_INT128") 
+    set(CMAKE_SHARK_CXX_FLAGS "-DBOOST_HAS_INT128") 
+    # We should have the logger under clang
+    set (CMAKE_CXX_FLAGS "-DHAVE_LOGGER ${CMAKE_CXX_FLAGS}")
     set (HAVE_LOGGER TRUE)
+    if (APPLE)
+        set (NON_APPLECLANG_LIBS "")
+    endif()
 else ()
     message(FATAL_ERROR "Your C++ compiler does not support C++11.")
 endif ()
@@ -214,6 +238,7 @@ ExternalProject_Add(libjellyfish
                     cp config.h <INSTALL_DIR>/include/
 )
 
+
 find_package(TBB)
 
 ##
@@ -225,36 +250,72 @@ if(NOT TBB_FOUND)
 
 set(TBB_WILL_RECONFIGURE TRUE)
 # Set the appropriate compiler
-if ("${CMAKE_CXX_COMPILER_ID}" MATCHES "Clang")
+if (CLANG)
     set(TBB_COMPILER "clang")
 else()
-
     set(TBB_COMPILER "gcc")
-
 endif()
 
 message("Build system will fetch and build Intel Threading Building Blocks")
 message("==================================================================")
 # These are useful for the custom install step we'll do later
-set(TBB_SOURCE_DIR ${CMAKE_CURRENT_SOURCE_DIR}/external/tbb42_20140416oss_src)
+set(TBB_SOURCE_DIR ${CMAKE_CURRENT_SOURCE_DIR}/external/tbb43_20140724oss)
 set(TBB_INSTALL_DIR ${CMAKE_CURRENT_SOURCE_DIR}/external/install)
+
+if ("${TBB_COMPILER}" STREQUAL "gcc") 
+    ## Don't know why it's a problem yet, but if we're using
+    ## GCC, get rid of the DO_ITT_NOTIFY flag
+    set(TBB_CXXFLAGS "${TBB_CXXFLAGS} -UDO_ITT_NOTIFY")  
+endif()
+
 ExternalProject_Add(libtbb
 	DOWNLOAD_DIR ${CMAKE_CURRENT_SOURCE_DIR}/external
-    URL http://www.threadingbuildingblocks.org/sites/default/files/software_releases/source/tbb42_20140416oss_src.tgz
-    SOURCE_DIR ${CMAKE_CURRENT_SOURCE_DIR}/external/tbb42_20140416oss_src
+    URL http://www.threadingbuildingblocks.org/sites/default/files/software_releases/source/tbb43_20140724oss_src.tgz
+    SOURCE_DIR ${CMAKE_CURRENT_SOURCE_DIR}/external/tbb43_20140724oss
     INSTALL_DIR ${CMAKE_CURRENT_SOURCE_DIR}/external/install
-    #PATCH_COMMAND "${TBB_PATCH_STEP}"
+    PATCH_COMMAND "${TBB_PATCH_STEP}"
     CONFIGURE_COMMAND ""
-    BUILD_COMMAND make compiler=${TBB_COMPILER} cfg=release tbb_build_prefix=LIBS
+    BUILD_COMMAND make CXXFLAGS=${TBB_CXXFLAGS} lambdas=1 compiler=${TBB_COMPILER} cfg=release tbb_build_prefix=LIBS 
     INSTALL_COMMAND sh -c "cp ${TBB_SOURCE_DIR}/build/LIBS_release/*.${SHARED_LIB_EXTENSION}* ${TBB_INSTALL_DIR}/lib && cp -r ${TBB_SOURCE_DIR}/include/* ${TBB_INSTALL_DIR}/include"
     BUILD_IN_SOURCE 1
 )
 
+SET( RECONFIG_FLAGS ${RECONFIG_FLAGS} -DTBB_WILL_RECONFIGURE=FALSE -DTBB_RECONFIGURE=TRUE)
 ExternalProject_Add_Step(libtbb reconfigure
-        COMMAND ${CMAKE_COMMAND} ${CMAKE_CURRENT_SOURCE_DIR} -DTBB_WILL_RECONFIGURE=FALSE -DTBB_RECONFIGURE=TRUE
+        COMMAND ${CMAKE_COMMAND} ${CMAKE_CURRENT_SOURCE_DIR} ${RECONFIG_FLAGS}
         DEPENDEES install
 )
 endif()
+
+##
+# If we're fetching tbb, we need to have dummy paths for these variables
+# so that CMake won't complain
+##
+if(TBB_WILL_RECONFIGURE)
+    set(TBB_INCLUDE_DIRS ${CMAKE_CURRENT_SOURCE_DIR}/external/install/include)
+    set(TBB_LIBRARY_DIRS ${CMAKE_CURRENT_SOURCE_DIR}/external/install/lib)
+    set(TBB_LIBRARIES ${CMAKE_CURRENT_SOURCE_DIR}/external/install/lib/libtbb.${SHARED_LIB_EXTENSION}
+                      ${CMAKE_CURRENT_SOURCE_DIR}/external/install/lib/libtbbmalloc.${SHARED_LIB_EXTENSION}
+    )
+endif()
+
+##
+#  Similar to the Boost trick above, the libtbb reconfigure should force this code
+#  to be run on the second configuration pass, where it should appropriately set the
+#  TBB_INSTALL_DIR variable.
+##
+if (TBB_RECONFIGURE)
+    unset(TBB_FOUND CACHE)
+    unset(TBB_INSTALL_DIR CACHE)
+    unset(CMAKE_PREFIX_PATH CACHE)
+    set(CMAKE_PREFIX_PATH ${CMAKE_CURRENT_SOURCE_DIR}/external/install)
+    set(TBB_INSTALL_DIR ${CMAKE_CURRENT_SOURCE_DIR}/external/install)
+    message("TBB_INSTALL_DIR = ${TBB_INSTALL_DIR}")
+    find_package(TBB)
+endif()
+
+
+message("TBB_LIBRARIES = ${TBB_LIBRARIES}")
 
 ##
 # If we're fetching tbb, we need to have dummy paths for these variables

@@ -49,7 +49,7 @@ bool LibraryFormat::check() {
     return valid;
 }
 
-std::ostream& operator<<(std::ostream& os, LibraryFormat& lf) {
+std::ostream& operator<<(std::ostream& os, const LibraryFormat& lf) {
     os << "Library format { type:";
     switch (lf.type) {
         case ReadType::SINGLE_END:
@@ -63,13 +63,13 @@ std::ostream& operator<<(std::ostream& os, LibraryFormat& lf) {
     os << ", relative orientation:";
     switch (lf.orientation)  {
         case ReadOrientation::TOWARD:
-            os << "toward";
+            os << "inward";
             break;
         case ReadOrientation::AWAY:
-           os << "away";
+           os << "outward";
            break;
         case ReadOrientation::SAME:
-           os << "same";
+           os << "matching";
            break;
         case ReadOrientation::NONE:
            os << "none";
@@ -97,3 +97,4 @@ std::ostream& operator<<(std::ostream& os, LibraryFormat& lf) {
     os << " }";
     return os;
 }
+

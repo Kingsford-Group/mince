@@ -26,6 +26,32 @@
 #include "MinceUtils.hpp"
 #include "Decoder.hpp"
 
+
+void dumpReadToFile(std::string& r, uint64_t readNum, LibraryFormat& fmt,
+                    uint32_t readLen, std::ofstream& of1, std::ofstream& of2) {
+	if (fmt.type == ReadType::SINGLE_END) {
+	  of1 << ">" << readNum  << "\n" << r << std::endl;
+	} else {
+      auto singleReadLen = readLen / 2;
+      auto read1 = r.substr(0, singleReadLen);
+      auto read2 = r.substr(singleReadLen);
+      switch (fmt.orientation) {
+          case ReadOrientation::AWAY:
+          case ReadOrientation::TOWARD:
+              mince::utils::reverseComplement(read2);
+              break;
+          case ReadOrientation::SAME:
+          default:
+            break;
+      }
+	  of1 << ">" << readNum << "\\1\n" << read1 << "\n";
+      of2 << ">" << readNum << "\\2\n" << read2 << "\n";
+	}
+
+}
+
+
+
 void Decoder::decode(std::string& ifname, std::string& ofname) {
     using my_mer = jellyfish::mer_dna_ns::mer_base_static<uint64_t, 1>;
     std::ifstream seqFile;
@@ -34,7 +60,7 @@ void Decoder::decode(std::string& ifname, std::string& ofname) {
     bit_file_c flipFile;
 
     namespace bfs = boost::filesystem;
- 
+
     bfs::path seqPath = ifname+".seqs";
     bfs::path offPath = ifname+".offs";
     bfs::path nsPath = ifname+".nlocs";
@@ -59,16 +85,28 @@ void Decoder::decode(std::string& ifname, std::string& ofname) {
 	flipFile.Open(flipPath.c_str(), BF_READ);
     }
 
+    uint8_t rltypeID{0};
     uint8_t rl{0};
     uint8_t kl{0};
     size_t numOnsies{0};
 
+    seqFile.read(reinterpret_cast<char*>(&rltypeID), sizeof(rltypeID));
     seqFile.read(reinterpret_cast<char*>(&kl), sizeof(kl));
     seqFile.read(reinterpret_cast<char*>(&rl), sizeof(rl));
     seqFile.read(reinterpret_cast<char*>(&numOnsies), sizeof(numOnsies));
 
-    std::ofstream ofile;
-    ofile.open(ofname);
+    LibraryFormat libFmt = LibraryFormat::formatFromID(rltypeID);
+
+    std::ofstream ofile1;
+    std::ofstream ofile2;
+
+    std::string ofname1 = (libFmt.type == ReadType::PAIRED_END) ?
+        ofname + "1.fa" : ofname + ".fa";
+
+    ofile1.open(ofname1);
+    if (libFmt.type == ReadType::PAIRED_END) {
+        ofile2.open(ofname + "2.fa");
+    }
 
     size_t readLength = rl;
     uint64_t bucketMer{0};
@@ -95,7 +133,7 @@ void Decoder::decode(std::string& ifname, std::string& ofname) {
 		}
 	}
 	void apply(std::string& s) {
-		for (auto p : nlocs) { 
+		for (auto p : nlocs) {
 			s[p] = 'N';
 		}
 	}
@@ -109,7 +147,7 @@ void Decoder::decode(std::string& ifname, std::string& ofname) {
 
     LOG(INFO) << "bucket string length = " << +kl;
     LOG(INFO) << "effective read length = " << effectiveReadLength;
-    LOG(INFO) << "reading " << numOnsies << " onsies"; 
+    LOG(INFO) << "reading " << numOnsies << " onsies";
 
     NPatch np;
     np.getNext(nsFile);
@@ -117,13 +155,13 @@ void Decoder::decode(std::string& ifname, std::string& ofname) {
     for (size_t j = 0; j < numOnsies; ++j) {
         seqFile.read(reinterpret_cast<char*>(onsieRead), effectiveReadLength);
         std::string recon = mince::utils::twoBitDecode(reinterpret_cast<const uint8_t*>(onsieRead), readLength);
-	if (np.id == j) { 
-		np.apply(recon); 
+	if (np.id == j) {
+		np.apply(recon);
 		np.getNext(nsFile);
 	}
 	bool doFlip = haveFlipFile ? flipFile.GetBit() : 0;
 	if (doFlip) { mince::utils::reverseComplement(recon); }
-        ofile << ">" << j << "\n" << recon << std::endl;
+        dumpReadToFile(recon, j, libFmt, readLength, ofile1, ofile2);
     }
 
     std::cerr << "done with onsies\n";
@@ -161,7 +199,7 @@ void Decoder::decode(std::string& ifname, std::string& ofname) {
 		LOG(INFO) << "bucket shares same core as previous bucket";
 		LOG(INFO) << "repeated core is " << bucketString;
 		bucketStringLength = prevBucketStringLength;
-	}	
+	}
 
         // Read the bucket size
         seqFile.read(reinterpret_cast<char*>(&bsize), sizeof(bsize));
@@ -214,8 +252,8 @@ void Decoder::decode(std::string& ifname, std::string& ofname) {
                 //std::cerr << "HERE8\n";
               std::string recon = mince::utils::unpermute(s, bucketString, offset);
 
-	      if (np.id == numOnsies + i) { 
-		      np.apply(recon); 
+	      if (np.id == numOnsies + i) {
+		      np.apply(recon);
 		      np.getNext(nsFile);
 	      }
 
@@ -227,13 +265,17 @@ void Decoder::decode(std::string& ifname, std::string& ofname) {
                   std::exit(1);
               }
 
-	      bool doFlip = haveFlipFile ? flipFile.GetBit() : 0;
-	      if (doFlip) { mince::utils::reverseComplement(recon); }
+    	      bool doFlip = haveFlipFile ? flipFile.GetBit() : 0;
+	          if (doFlip) { mince::utils::reverseComplement(recon); }
 
-              ofile << ">" << numOnsies + i << "\n" << recon << std::endl;
+              dumpReadToFile(recon, numOnsies + i, libFmt, readLength,
+                             ofile1, ofile2);
+
                 //std::cerr << "recon = " << recon << "\n";
             } else {
-                ofile << ">" << numOnsies + i << "\nERROR RECONSTRUCTING THIS READ" << std::endl;
+                //dumpReadToFile(recon, numOnsies + i, libFmt, readLength,
+                //               ofile1, ofile2);
+                std::cerr << ">" << numOnsies + i << "\nERROR RECONSTRUCTING THIS READ" << std::endl;
                 std::cerr << "s.length() = " << s.length() << "\n";
                 std::cerr << "offset = " << +offset << "\n";
                 std::cerr << "HERE!!!!!!!!!\n";
@@ -256,7 +298,12 @@ void Decoder::decode(std::string& ifname, std::string& ofname) {
     seqFile.close();
     offFile.close();
     if (haveFlipFile) { flipFile.Close(); }
-    ofile.close();
+    ofile1.close();
+    if (libFmt.type == ReadType::PAIRED_END) {
+        ofile2.close();
+    }
+
+
 }
 
 

@@ -187,118 +187,103 @@ namespace mince {
             std::swap(revs, s);
         }
 
-        /**
-         * This function parses the library format string that specifies the format in which
-         * the reads are to be expected.
-         */
-        LibraryFormat parseLibraryFormatString(std::string& fmt) {
-            using std::vector;
-            using std::string;
-            using std::map;
-            using std::stringstream;
 
-            map<char, ReadOrientation> orientationType = {{'S', ReadOrientation::SAME},
-                {'A', ReadOrientation::AWAY},
-                {'T', ReadOrientation::TOWARD},
-                {'I', ReadOrientation::NONE}};
-            map<string, ReadStrandedness> strandType = {{"FF", ReadStrandedness::S},
-                {"RR", ReadStrandedness::A},
-                {"FR", ReadStrandedness::SA},
-                {"RF", ReadStrandedness::AS},
-                {"UU", ReadStrandedness::U},
-                {"F", ReadStrandedness::S},
-                {"R", ReadStrandedness::A},
-                {"U", ReadStrandedness::U}};
+	/**
+	 * This function parses the library format string that specifies the format in which
+	 * the reads are to be expected.
+	 */
+	LibraryFormat parseLibraryFormatStringNew(std::string& fmt) {
+		using std::vector;
+		using std::string;
+		using std::map;
+		using std::stringstream;
 
-            // inspired by http://stackoverflow.com/questions/236129/how-to-split-a-string-in-c
-            // first convert the string to upper-case
-            for (auto& c : fmt) { c = std::toupper(c); }
+		map<string, LibraryFormat> formatMap = {
+			{"IU", LibraryFormat(ReadType::PAIRED_END, ReadOrientation::TOWARD, ReadStrandedness::U)},
+			{"ISF", LibraryFormat(ReadType::PAIRED_END, ReadOrientation::TOWARD, ReadStrandedness::SA)},
+			{"ISR", LibraryFormat(ReadType::PAIRED_END, ReadOrientation::TOWARD, ReadStrandedness::AS)},
+			{"OU", LibraryFormat(ReadType::PAIRED_END, ReadOrientation::AWAY, ReadStrandedness::U)},
+			{"OSF", LibraryFormat(ReadType::PAIRED_END, ReadOrientation::AWAY, ReadStrandedness::SA)},
+			{"OSR", LibraryFormat(ReadType::PAIRED_END, ReadOrientation::AWAY, ReadStrandedness::AS)},
+			{"MU", LibraryFormat(ReadType::PAIRED_END, ReadOrientation::SAME, ReadStrandedness::U)},
+			{"MSF", LibraryFormat(ReadType::PAIRED_END, ReadOrientation::SAME, ReadStrandedness::S)},
+			{"MSR", LibraryFormat(ReadType::PAIRED_END, ReadOrientation::SAME, ReadStrandedness::A)},
+			{"U", LibraryFormat(ReadType::SINGLE_END, ReadOrientation::NONE, ReadStrandedness::U)},
+			{"SF", LibraryFormat(ReadType::SINGLE_END, ReadOrientation::NONE, ReadStrandedness::S)},
+			{"SR", LibraryFormat(ReadType::SINGLE_END, ReadOrientation::NONE, ReadStrandedness::A)}};
 
-            auto orientationIt = orientationType.find(fmt.front());
-            auto strandednessIt = strandType.find(fmt.substr(1));
+		// inspired by http://stackoverflow.com/questions/236129/how-to-split-a-string-in-c
+		// first convert the string to upper-case
+		for (auto& c : fmt) { c = std::toupper(c); }
 
-            if (orientationIt == orientationType.end()) {
-                stringstream errstr;
-                errstr << "unknown orientation type: " << fmt.front();
-                throw std::invalid_argument(errstr.str());
-            }
-            if (strandednessIt == strandType.end()) {
-                stringstream errstr;
-                errstr << "unknown strand type: " << fmt.substr(1);
-                throw std::invalid_argument(errstr.str());
-            }
 
-            // if we recognize the orientation & strand
-            auto orientation = orientationIt->second;
-            auto strandedness = strandednessIt->second;
+		auto libFmtIt = formatMap.find(fmt);
 
-            ReadType rt;
-            if (orientation == ReadOrientation::NONE) {
-                rt = ReadType::SINGLE_END;
-            } else {
-                rt = ReadType::PAIRED_END;
-            }
+		if (libFmtIt == formatMap.end()) {
+			stringstream errstr;
+			errstr << "unknown library format string : " << fmt;
+			throw std::invalid_argument(errstr.str());
+		}
 
-            return LibraryFormat(rt, orientation, strandedness);
-        }
+		return libFmtIt->second;
+	}
 
-        /**
-         * Parses a set of __ordered__ command line options and extracts the relevant
-         * read libraries from them.
-         */
-        std::vector<ReadLibrary> extractReadLibraries(boost::program_options::parsed_options& orderedOptions) {
-            // The current (default) format for paired end data
-            LibraryFormat peFormat(ReadType::PAIRED_END, ReadOrientation::TOWARD, ReadStrandedness::U);
-            // The current (default) format for single end data
-            LibraryFormat seFormat(ReadType::SINGLE_END, ReadOrientation::NONE, ReadStrandedness::U);
+	/**
+	 * Parses a set of __ordered__ command line options and extracts the relevant
+	 * read libraries from them.
+	 */
+	std::vector<ReadLibrary> extractReadLibraries(boost::program_options::parsed_options& orderedOptions) {
+		// The current (default) format for paired end data
+		LibraryFormat peFormat(ReadType::PAIRED_END, ReadOrientation::TOWARD, ReadStrandedness::U);
+		// The current (default) format for single end data
+		LibraryFormat seFormat(ReadType::SINGLE_END, ReadOrientation::NONE, ReadStrandedness::U);
 
-            std::vector<ReadLibrary> peLibs{ReadLibrary(peFormat)};
-            std::vector<ReadLibrary> seLibs{ReadLibrary(seFormat)};
-            for (auto& opt : orderedOptions.options) {
-                // Update the library type
-                if (opt.string_key == "libtype") {
-                    auto libFmt = parseLibraryFormatString(opt.value[0]);
-                    if (libFmt.type == ReadType::PAIRED_END) {
-                        peFormat = libFmt;
-                        peLibs.emplace_back(libFmt);
-                    } else {
-                        seFormat = libFmt;
-                        seLibs.emplace_back(libFmt);
-                    }
-                }
-                if (opt.string_key == "mates1") {
-                    std::cerr << "mates1\n";
-                    peLibs.back().addMates1(opt.value);
-                }
-                if (opt.string_key == "mates2") {
-                    std::cerr << "mates2\n";
-                    peLibs.back().addMates2(opt.value);
-                }
-                if (opt.string_key == "unmated_reads") {
-                    std::cerr << "unmated\n";
-                    seLibs.back().addUnmated(opt.value);
-                }
-            }
+		std::vector<ReadLibrary> peLibs{ReadLibrary(peFormat)};
+		std::vector<ReadLibrary> seLibs{ReadLibrary(seFormat)};
+		for (auto& opt : orderedOptions.options) {
+			// Update the library type
+			if (opt.string_key == "libtype") {
+				auto libFmt = parseLibraryFormatStringNew(opt.value[0]);
+				if (libFmt.type == ReadType::PAIRED_END) {
+					peFormat = libFmt;
+					peLibs.emplace_back(libFmt);
+				} else {
+					seFormat = libFmt;
+					seLibs.emplace_back(libFmt);
+				}
+			}
+			if (opt.string_key == "mates1") {
+				peLibs.back().addMates1(opt.value);
+			}
+			if (opt.string_key == "mates2") {
+				peLibs.back().addMates2(opt.value);
+			}
+			if (opt.string_key == "unmated_reads") {
+				seLibs.back().addUnmated(opt.value);
+			}
+		}
 
-            std::vector<ReadLibrary> libs;
-            libs.reserve(peLibs.size() + seLibs.size());
-            for (auto& lib : boost::range::join(seLibs, peLibs)) {
-                if (lib.format().type == ReadType::SINGLE_END) {
-                    if (lib.unmated().size() == 0) {
-                        std::cerr << "skipping single-end library w/ no reads\n";
-                        continue;
-                    }
-                } else if (lib.format().type == ReadType::PAIRED_END) {
-                    if (lib.mates1().size() == 0 or lib.mates2().size() == 0) {
-                        std::cerr << "skipping paired-end library w/ no reads\n";
-                        continue;
-                    }
-                }
-                libs.push_back(lib);
-            }
-            std::cerr << "there are " << libs.size() << " libs\n";
-            return libs;
-        }
+		std::vector<ReadLibrary> libs;
+		libs.reserve(peLibs.size() + seLibs.size());
+		for (auto& lib : boost::range::join(seLibs, peLibs)) {
+			if (lib.format().type == ReadType::SINGLE_END) {
+				if (lib.unmated().size() == 0) {
+					// Didn't use default single end library type
+					continue;
+				}
+			} else if (lib.format().type == ReadType::PAIRED_END) {
+				if (lib.mates1().size() == 0 or lib.mates2().size() == 0) {
+					// Didn't use default paired-end library type
+					continue;
+				}
+			}
+			libs.push_back(lib);
+		}
+		size_t numLibs = libs.size();
+		std::cerr << "there " << ((numLibs > 1) ? "are " : "is ") << libs.size() << ((numLibs > 1) ? " libs\n" : " lib\n");
+		return libs;
+	}
+
 
     } // namespace utils
 } // namespace mince
