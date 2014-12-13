@@ -136,7 +136,7 @@ void bucketReads(ParserT* parser, ReadLibrary& rl, std::atomic<uint64_t>* total,
                 iomutex.unlock();
             }
             //std::string s(j->data[i].seq);
-	    std::string s(getSequence(j->data[i], rl));
+	        std::string s(getSequence(j->data[i], rl));
 
             count += s.size();        // Add up the size of the sequence
 
@@ -349,6 +349,7 @@ void reassignOnsies(
         for (auto& kv : merOffsetMap) {
             auto cit = countMap.find(kv.first);
             if (cit != countMap.end()) {
+
                 auto dir = std::get<1>(kv.second);
                 bool rc = dir == Direction::REVERSE;
                 //auto& fvec = (dir == Direction::REVERSE) ? featVecRC : featVec;
@@ -527,9 +528,13 @@ Mince
 
       auto readLibraries = mince::utils::extractReadLibraries(orderedOptions);
       assert(readLibraries.size() == 1);
+      std::vector<const char*> inputs;
+      std::unique_ptr<pair_parser> pparser(nullptr);
+      std::unique_ptr<stream_manager> streams(nullptr);
+	  std::unique_ptr<sequence_parser> sparser(nullptr);
+
       for (auto& rl : readLibraries) {
 	      if (rl.format().type == ReadType::PAIRED_END) {
-		      std::vector<const char*> inputs;
 		      auto& m1 = rl.mates1();
 		      auto& m2 = rl.mates2();
 		      for (size_t i = 0; i < m1.size(); ++i) {
@@ -541,35 +546,37 @@ Mince
 
 		      char** start = const_cast<char**>(&(*inputs.begin()));
 		      char** stop = const_cast<char**>(&(*inputs.end()));
-		      pair_parser parser(4 * nb_threads, max_read_group, concurrent_file,
-				      start, stop);
+		      pparser.reset(new pair_parser(4 * nb_threads, max_read_group, concurrent_file,
+				      start, stop));
 		      // Spawn off the read parsing threads
 		      for(int i = 0; i < nb_threads; ++i) {
-			      threads.push_back(std::thread(bucketReads<my_mer, pair_parser>, &parser, std::ref(rl), &total,
-						      std::ref(totReads), std::ref(maps[i]),
-						      std::ref(countMap), bucketStringLength,
-						      noRC, std::ref(iomutex)));
+                  threads.emplace_back(bucketReads<my_mer, pair_parser>,
+                          pparser.get(), std::ref(rl), &total,
+                          std::ref(totReads), std::ref(maps[i]),
+                          std::ref(countMap), bucketStringLength,
+                          noRC, std::ref(iomutex));
 		      }
 
 	      } else if (rl.format().type == ReadType::SINGLE_END) {
-
-		      std::vector<const char*> inputs;
 		      auto& m1 = rl.unmated();
 		      for (size_t i = 0; i < m1.size(); ++i) {
-			      inputs.push_back(m1[i].c_str());
+                  char* strptr = new char[m1[i].size()+1];
+                  std::strcpy(strptr, m1[i].c_str());
+			      inputs.push_back(strptr);
 		      }
 
 		      char** start = const_cast<char**>(&(*inputs.begin()));
 		      char** stop = const_cast<char**>(&(*inputs.end()));
-		      stream_manager  streams(start, stop, concurrent_file);
-		      sequence_parser parser(4 * nb_threads, max_read_group, concurrent_file, streams);
+              streams.reset(new stream_manager(start, stop, concurrent_file));
+		      sparser.reset(new sequence_parser(4 * nb_threads, max_read_group, concurrent_file, *(streams.get())));
 
 		      // Spawn off the read parsing threads
 		      for(int i = 0; i < nb_threads; ++i) {
-			      threads.push_back(std::thread(bucketReads<my_mer, sequence_parser>, &parser, std::ref(rl), &total,
-						      std::ref(totReads), std::ref(maps[i]),
-						      std::ref(countMap), bucketStringLength,
-						      noRC, std::ref(iomutex)));
+                  threads.emplace_back(bucketReads<my_mer, sequence_parser>,
+                          sparser.get(), std::ref(rl), &total,
+                          std::ref(totReads), std::ref(maps[i]),
+                          std::ref(countMap), bucketStringLength,
+                          noRC, std::ref(iomutex));
 		      }
 
 	      }
