@@ -560,9 +560,7 @@ Mince
 	      } else if (rl.format().type == ReadType::SINGLE_END) {
 		      auto& m1 = rl.unmated();
 		      for (size_t i = 0; i < m1.size(); ++i) {
-                  char* strptr = new char[m1[i].size()+1];
-                  std::strcpy(strptr, m1[i].c_str());
-			      inputs.push_back(strptr);
+			      inputs.push_back(m1[i].c_str());
 		      }
 
 		      char** start = const_cast<char**>(&(*inputs.begin()));
