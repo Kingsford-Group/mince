@@ -28,24 +28,24 @@
 
 
 void dumpReadToFile(std::string& r, uint64_t readNum, LibraryFormat& fmt,
-                    uint32_t readLen, std::ofstream& of1, std::ofstream& of2) {
+		uint32_t readLen, std::ofstream& of1, std::ofstream& of2) {
 	if (fmt.type == ReadType::SINGLE_END) {
-	  of1 << ">" << readNum  << "\n" << r << std::endl;
+		of1 << ">" << readNum  << "\n" << r << std::endl;
 	} else {
-      auto singleReadLen = readLen / 2;
-      auto read1 = r.substr(0, singleReadLen);
-      auto read2 = r.substr(singleReadLen);
-      switch (fmt.orientation) {
-          case ReadOrientation::AWAY:
-          case ReadOrientation::TOWARD:
-              mince::utils::reverseComplement(read2);
-              break;
-          case ReadOrientation::SAME:
-          default:
-            break;
-      }
-	  of1 << ">" << readNum << "\\1\n" << read1 << "\n";
-      of2 << ">" << readNum << "\\2\n" << read2 << "\n";
+		auto singleReadLen = readLen / 2;
+		auto read1 = r.substr(0, singleReadLen);
+		auto read2 = r.substr(singleReadLen);
+		switch (fmt.orientation) {
+			case ReadOrientation::AWAY:
+			case ReadOrientation::TOWARD:
+				mince::utils::reverseComplement(read2);
+				break;
+			case ReadOrientation::SAME:
+			default:
+				break;
+		}
+		of1 << ">" << readNum << "/1\n" << read1 << "\n";
+		of2 << ">" << readNum << "/2\n" << read2 << "\n";
 	}
 
 }
