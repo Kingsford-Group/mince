@@ -21,14 +21,17 @@
 #include <tbb/concurrent_unordered_map.h>
 #include <tbb/parallel_sort.h>
 
-#include "g2logworker.h"
-#include "g2log.h"
+#include "pstream.h"
+
 #include "bitfile.h"
 #include "MinceUtils.hpp"
 #include "FindPartition.hpp"
 #include "Decoder.hpp"
 #include "BucketModel.hpp"
 #include "PairSequenceParser.hpp"
+#include "spdlog/spdlog.h"
+#include "spdlog/details/format.h"
+#include "MinceOpts.hpp"
 
 using pair_parser = pair_sequence_parser<char**>;
 using stream_manager = jellyfish::stream_manager<char**>;
@@ -399,7 +402,6 @@ void reassignOnsies(
 }
 
 int main(int argc, char *argv[]) {
-  const int nb_threads      = 20;
   const int concurrent_file = 1;   // Number of files to read simultaneously
   const int max_read_group  = 100; // Number of reads in each "job" group
 
@@ -407,6 +409,7 @@ int main(int argc, char *argv[]) {
   namespace po = boost::program_options;
   using std::string;
 
+  MinceOpts minceOpts;
   bool doDecode{false};
   bool doEncode{false};
   bool noRC{false};
@@ -418,6 +421,9 @@ int main(int argc, char *argv[]) {
       ("version,v", "print version information")
       ("help,h", "print help message")
       //("input,i", po::value<string>(), "input file; FASTA/Q if encoding, MINCE if decoding")
+      ("threads,p", po::value<uint32_t>(&minceOpts.numThreads)->default_value(20),
+                 "number of concurrent threads to use for compression / decompression; "
+                 "the minimum value is 4.")
       ("libtype,l", po::value<string>(), "library format string [only for encoding]")
       ("mates1,1", po::value<std::vector<string>>(), "mate file 1 [only for encoding]")
       ("mates2,2", po::value<std::vector<string>>(), "mate file 2 [only for encoding]")
@@ -436,8 +442,8 @@ int main(int argc, char *argv[]) {
 
       if (vm.count("help")) {
           auto hstring = R"(
-Mince
-=====
+= Mince =
+---------
 )";
           std::cerr << hstring << "\n";
           std::cerr << generic << "\n";
@@ -453,10 +459,6 @@ Mince
           }
           std::cerr << " }\n";
       }
-
-      const std::string logPath = ".";
-      g2LogWorker logger(argv[0], logPath);
-      g2::initializeLogging(&logger);
 
       if (bucketStringLength < 1 or bucketStringLength > 16) {
           std::stringstream errstr;
@@ -475,11 +477,33 @@ Mince
           throw std::invalid_argument(errstr.str());
       }
 
+      std::string outfname = vm["output"].as<string>();
+
+      bfs::path logFilePath = outfname + ".log";
+      size_t maxLogQueueSize = 2097152;
+      spdlog::set_async_mode(maxLogQueueSize);
+
+      auto fileSink = std::make_shared<spdlog::sinks::simple_file_sink_mt>(
+              logFilePath.string(), true);
+      auto consoleSink = std::make_shared<spdlog::sinks::stderr_sink_mt>();
+      auto consoleLog = spdlog::create("consoleLog", {consoleSink});
+      auto fileLog = spdlog::create("fileLog", {fileSink});
+      auto jointLog = spdlog::create("jointLog", {fileSink, consoleSink});
+
+      minceOpts.fileLog = fileLog;
+      minceOpts.jointLog = jointLog;
+
+      if (minceOpts.numThreads < 4) {
+          jointLog->info("You requested {} threads, but the minimum is 4. "
+                         "Setting # threads to 4.", minceOpts.numThreads);
+          minceOpts.numThreads = 4;
+      }
+
       if (doDecode) {
           std::string input = vm["input"].as<string>();
           std::string output = vm["output"].as<string>();
           Decoder d;
-          d.decode(input, output);
+          d.decode(minceOpts, input, output);
           std::exit(0);
       }
 
@@ -493,28 +517,12 @@ Mince
       sequence_parser parser(4 * nb_threads, max_read_group, concurrent_file, streams);
       */
 
-      std::string outfname = vm["output"].as<string>();
 
       std::vector<std::thread> threads;
       std::atomic<uint64_t> total(0);
       std::atomic<uint64_t> totReads{0};
       std::atomic<uint64_t> distinct{0};
       using my_mer = jellyfish::mer_dna_ns::mer_base_static<uint64_t, 1>;
-
-      // The sequence information is output to four streams
-      // The sequence & control stream --- ending in .seqs
-      std::ofstream outfileSeqs;
-      outfileSeqs.open(outfname+".seqs", std::ios::out | std::ios::binary);
-      // the offset stream --- ending in .offs
-      std::ofstream outfileOffsets;
-      outfileOffsets.open(outfname+".offs", std::ios::out | std::ios::binary);
-      // the flip stream --- just a bunch of bits denoting if the read was RC'd or not
-      const char* flipFileName = (outfname+".flips").c_str();
-      bit_file_c outfileFlips(flipFileName, BF_WRITE);
-      // the Ns stream --- encodes the locations where an N has been flipped in the
-      // encoded sequence.
-      std::ofstream outfileNLocs;
-      outfileNLocs.open(outfname+".nlocs", std::ios::out | std::ios::binary);
 
       unsigned int kl{bucketStringLength};
       my_mer::k(kl);
@@ -523,8 +531,9 @@ Mince
       // by writing from multiple threads
       std::mutex iomutex;
       CountMap countMap;
-      std::vector<MapT> maps(nb_threads);
-      LOG(INFO) << "Starting " << nb_threads << " read parsing threads";
+
+      std::vector<MapT> maps(minceOpts.numThreads);
+      jointLog->info("Starting {} processing threads", minceOpts.numThreads);
 
       auto readLibraries = mince::utils::extractReadLibraries(orderedOptions);
       assert(readLibraries.size() == 1);
@@ -546,10 +555,10 @@ Mince
 
 		      char** start = const_cast<char**>(&(*inputs.begin()));
 		      char** stop = const_cast<char**>(&(*inputs.end()));
-		      pparser.reset(new pair_parser(4 * nb_threads, max_read_group, concurrent_file,
+		      pparser.reset(new pair_parser(4 * minceOpts.numThreads, max_read_group, concurrent_file,
 				      start, stop));
 		      // Spawn off the read parsing threads
-		      for(int i = 0; i < nb_threads; ++i) {
+		      for(int i = 0; i < minceOpts.numThreads; ++i) {
                   threads.emplace_back(bucketReads<my_mer, pair_parser>,
                           pparser.get(), std::ref(rl), &total,
                           std::ref(totReads), std::ref(maps[i]),
@@ -566,10 +575,10 @@ Mince
 		      char** start = const_cast<char**>(&(*inputs.begin()));
 		      char** stop = const_cast<char**>(&(*inputs.end()));
               streams.reset(new stream_manager(start, stop, concurrent_file));
-		      sparser.reset(new sequence_parser(4 * nb_threads, max_read_group, concurrent_file, *(streams.get())));
+		      sparser.reset(new sequence_parser(4 * minceOpts.numThreads, max_read_group, concurrent_file, *(streams.get())));
 
 		      // Spawn off the read parsing threads
-		      for(int i = 0; i < nb_threads; ++i) {
+		      for(int i = 0; i < minceOpts.numThreads; ++i) {
                   threads.emplace_back(bucketReads<my_mer, sequence_parser>,
                           sparser.get(), std::ref(rl), &total,
                           std::ref(totReads), std::ref(maps[i]),
@@ -583,10 +592,10 @@ Mince
       }
 
       // Join all of the read-parsing threads
-      for(int i = 0; i < nb_threads; ++i) {
+      for(int i = 0; i < minceOpts.numThreads; ++i) {
           threads[i].join();
       }
-      LOG(INFO) << "parsing threads finished";
+      jointLog->info("finished parsing files");
 
       // The union of keys from all maps
       std::set<my_mer> keys;
@@ -596,10 +605,12 @@ Mince
           }
       }
 
-      LOG(INFO) << "Marking and collecting onsies";
+      jointLog->info("Marking and collecting onsies");
+
       // The length of the reads in this file
       uint8_t readLength = maps[0].begin()->second.front().str.length() + kl;
-      std::cerr << "\n\nread length = " << +readLength << "\n";
+      jointLog->info("Read length (assumed = for all reads) is {}",
+            +readLength);
 
       size_t totOutput{0};
       size_t totBuckets{0};
@@ -640,8 +651,8 @@ Mince
               std::string s(std::get<1>(combined[0]).str);
               // Recover the original string
               size_t offset = std::get<1>(combined[0]).offset;
-	      bool rc = std::get<1>(combined[0]).rc;
-	      std::vector<uint8_t>& nlocs = std::get<1>(combined[0]).nlocs;
+	          bool rc = std::get<1>(combined[0]).rc;
+    	      std::vector<uint8_t>& nlocs = std::get<1>(combined[0]).nlocs;
               std::string recon = mince::utils::unpermute(s, bucketString, offset);
 
               // Push back the original key and the reconstructed string
@@ -649,7 +660,7 @@ Mince
           }
       }
 
-      LOG(INFO) << "erasing onsies from individual maps";
+      jointLog->info("erasing onsies from individual maps");
 
       // For all onsies
       for (auto& kr : onsies) {
@@ -658,8 +669,11 @@ Mince
               auto key = std::get<0>(kr);
               auto kit = m.find(key);
               if (kit != m.end()) {
-		  LOG_IF(FATAL, (kit->second.size() > 1)) << "erasing non-singleton bucket ("
-							  << kit->second.size() << ")!";
+                  if (kit->second.size() > 1) {
+                      jointLog->critical("Erasing non-singleton bucket ({})!",
+                              kit->second.size());
+                      throw std::logic_error("Erasing non-singleton bucket!");
+                  }
                   m.erase(kit);
                   keys.erase(key);
                   countMap[key.get_bits(0, 2*kl)].subCount();
@@ -667,11 +681,12 @@ Mince
           }
       }
 
-      std::cerr << "|keys| = " << keys.size() << "\n";
-      std::cerr << "there were " << totNumReads << " original reads\n";
-      std::cerr << "there were " << onsies.size() << " original onsies\n";
+      jointLog->info("|keys| = {}", keys.size());
+      jointLog->info("total number of reads = {}", totNumReads);
+      jointLog->info("total number of onsies = {}", onsies.size());
 
-      LOG(INFO) << "re-assigning onsies";
+      jointLog->info("re-assigning onsies");
+
       // Re-assign the onsies to see if they can be placed in any non-empty
       // buckets that didn't exist when they were first considered.
       MapT collatedMap;
@@ -694,11 +709,67 @@ Mince
           newTotal += kv.second.size();
       }
 
-      LOG(INFO) << "done re-assigning onsies";
+      jointLog->info("done re-assigning onsies");
 
-      std::cerr << "|keys| = " << keys.size() << "\n";
-      std::cerr << "now there are " << newOnsies << " onsies\n";
-      std::cerr << "rebucketed " << newTotal << " reads\n";
+      jointLog->info("|keys| = {}", keys.size());
+      jointLog->info("now there are {} onsies", newOnsies);
+      jointLog->info("re-bucked {} reads", newTotal);
+
+      jointLog->info("sorting onsies");
+      tbb::parallel_sort(onsieVec.begin(), onsieVec.end(),
+              [](const std::tuple<my_mer,
+                  BucketedString>& o1,
+                  const std::tuple<my_mer,
+                  BucketedString>& o2) -> bool {
+              auto& s1 = const_cast<std::string&>(std::get<1>(o1).str);
+              auto& s2 = const_cast<std::string&>(std::get<1>(o2).str);
+              for (auto i1 = s1.rbegin(), i2 = s2.rbegin(); i1 != s1.rend() and i2 != s2.rend(); ++i1, ++i2) {
+              if (*i1 != *i2) {
+              return *i1 < *i2;
+              }
+              }
+              return s1.size() < s2.size();
+              });
+
+      jointLog->info("done sorting onsies");
+
+      // The sequence information is output to four streams
+      // The sequence & control stream --- ending in .seqs
+      /*
+      std::ofstream outfileSeqs;
+      outfileSeqs.open(outfname+".seqs", std::ios::out | std::ios::binary);
+      */
+      fmt::MemoryWriter w;
+      w.write("plzip -o {} -f -n {} -", minceOpts.numThreads - 3, outfname+".seqs");
+      jointLog->info("writing seq buffer with command {}", w.str());
+      redi::opstream outfileSeqs(w.str());
+      w.clear();
+
+      // the offset stream --- ending in .offs
+      /*
+      std::ofstream outfileOffsets;
+      outfileOffsets.open(outfname+".offs", std::ios::out | std::ios::binary);
+      */
+      w.write("plzip -o {} -f -n 1 -", outfname+".offs");
+      jointLog->info("writing offset buffer with command {}", w.str());
+      redi::opstream outfileOffsets(w.str());
+      w.clear();
+
+      // the flip stream --- just a bunch of bits denoting if the read was RC'd or not
+      const char* flipFileName = (outfname+".flips").c_str();
+      bit_file_c outfileFlips(flipFileName, BF_WRITE);
+
+      // the Ns stream --- encodes the locations where an N has been flipped in the
+      // encoded sequence.
+      /*
+      std::ofstream outfileNLocs;
+      outfileNLocs.open(outfname+".nlocs", std::ios::out | std::ios::binary);
+      */
+      w.write("plzip -o {} -f -n 1 -", outfname+".nlocs");
+      jointLog->info("writing nloc buffer with command {}", w.str());
+      redi::opstream outfileNLocs(w.str());
+      w.clear();
+
 
 
       // The read library type
@@ -710,21 +781,6 @@ Mince
       // The length of the reads
       outfileSeqs.write(reinterpret_cast<char*>(&readLength), sizeof(readLength));
 
-      LOG(INFO) << "sorting onsies";
-      tbb::parallel_sort(onsieVec.begin(), onsieVec.end(),
-              [](const std::tuple<my_mer, BucketedString>& o1, const std::tuple<my_mer, BucketedString>& o2) -> bool {
-		auto& s1 = const_cast<std::string&>(std::get<1>(o1).str);
-		auto& s2 = const_cast<std::string&>(std::get<1>(o2).str);
-		for (auto i1 = s1.rbegin(), i2 = s2.rbegin(); i1 != s1.rend() and i2 != s2.rend(); ++i1, ++i2) {
-		  if (*i1 != *i2) {
-			return *i1 < *i2;
-		  }
-		}
-		return s1.size() < s2.size();
-              });
-
-      LOG(INFO) << "done sorting onsies";
-      std::cerr << "sorted onsies\n";
       uint32_t readCtr{0};
       // First, write out all remaining onsies
       outfileSeqs.write(reinterpret_cast<char*>(&newOnsies), sizeof(newOnsies));
@@ -753,7 +809,7 @@ Mince
       // Push back the remaining onsies map
       maps.push_back(collatedMap);
 
-      std::cerr << "wrote out onsies\n";
+      jointLog->info("wrote out onsies");
 
       // Go through all of the buckets
       for (auto& k : keys ) {
@@ -810,9 +866,14 @@ Mince
               size_t lastReadIdx = subBucket.stopIdx;
               size_t sbsize = subBucket.size();
               uint32_t lcpLen = subBucket.prefLen;
-	      LOG(INFO) << "writing bucket of size " << sbsize;
+              fileLog->info("writing bucket of size {}", sbsize);
 
-	      LOG_IF(FATAL, (nextReadIdx > lastReadIdx)) << "sub-bucket " << i << " had non-positive range!";
+              if (nextReadIdx > lastReadIdx) {
+                  fmt::MemoryWriter w;
+                  w.write("sub-bucket {} had non-positive range!", i);
+                  jointLog->critical(w.str());
+                  throw std::logic_error(w.str());
+              }
 
               std::string& firstRead = reads[nextReadIdx].str;
               std::string& lastRead = reads[lastReadIdx].str;
@@ -825,18 +886,24 @@ Mince
               auto keyStrLen = keyStr.length();
 
               if (offset1 > firstRead.length()) {
-                  std::cerr << "offset1 = " << offset1 << " > "
-                            << "read length = " << firstRead.length() << "\n";
-                  std::exit(1);
+                  fmt::MemoryWriter w;
+                  w.write("offset1 = {} > read length = {}",
+                          offset1, firstRead.length());
+                  jointLog->critical(w.str());
+                  throw std::logic_error(w.str());
               }
+
               if (offset2 > lastRead.length()) {
-                  std::cerr << "offset2 = " << offset2 << " > "
-                            << "read length = " << lastRead.length() << "\n";
-                  std::exit(1);
+                  fmt::MemoryWriter w;
+                  w.write("offset2 = {} > read length = {}",
+                          offset2, lastRead.length());
+                  jointLog->critical(w.str());
+                  throw std::logic_error(w.str());
               }
 
               std::vector<uint8_t> keyBytes = mince::utils::twoBitEncode(keyStr);
               uint8_t kstrLen = keyStr.length();
+
               // If this is the first sub-bucket to use this string, then write out the core string
               if (i == 0) {
                   // The size of the bucket string
@@ -865,9 +932,10 @@ Mince
                   try {
                       std::string rsub = rstr;//rstr.substr(lcpLen, encReadLength - extraBasesPerRead);
                       if (offset > rsub.size()) {
-                          std::cerr << "bucket[" << nextReadIdx << ", " << lastReadIdx << "]\n";
-                          std::cerr << "lcpLen = " << lcpLen << "\n";
-                          std::cerr << "encountered an offset " << +offset << " that is greater than the string length " << rsub.length() << "\n";
+                          jointLog->info("bucket [{}, {}]", nextReadIdx, lastReadIdx);
+                          jointLog->info("lcpLen = {}", lcpLen);
+                          jointLog->info("encountered an offset {} that is greater than the string length",
+                                  +offset, rsub.length());
                       }
 
                       // BINARY
@@ -876,20 +944,20 @@ Mince
                       // ASCII
                       // outfileSeqs.write(&rsub[0], rsub.length());
 
-		      outfileFlips.PutBit(r.rc);
-		      if (r.nlocs.size() > 0) {
-			      outfileNLocs.write(reinterpret_cast<char*>(&readCtr), sizeof(readCtr));
-			      uint8_t nn = r.nlocs.size();
-			      outfileNLocs.write(reinterpret_cast<char*>(&nn), sizeof(nn));
-			      outfileNLocs.write(reinterpret_cast<char*>(&r.nlocs[0]), nn * sizeof(r.nlocs[0]));
-		      }
-		      ++readCtr;
-		      if (extraBasesPerRead > 0) {
+        		      outfileFlips.PutBit(r.rc);
+                      if (r.nlocs.size() > 0) {
+                          outfileNLocs.write(reinterpret_cast<char*>(&readCtr), sizeof(readCtr));
+                          uint8_t nn = r.nlocs.size();
+                          outfileNLocs.write(reinterpret_cast<char*>(&nn), sizeof(nn));
+                          outfileNLocs.write(reinterpret_cast<char*>(&r.nlocs[0]), nn * sizeof(r.nlocs[0]));
+                      }
+                      ++readCtr;
+                      if (extraBasesPerRead > 0) {
                           sstream << rstr.substr(encReadLength - extraBasesPerRead);
                       }
 
                   } catch (std::exception& e ) {
-                      std::cerr << "EXCEPTION: " << e.what() << rstr << "\n";
+                      jointLog->critical("EXCEPTION: {}", e.what());
                   }
               }
 
@@ -901,8 +969,8 @@ Mince
                   uint8_t l = r.offset;
 
                   if (l > r.str.length()) {
-                    std::cerr << "offset is " << l << ", which is greater than "
-                              << "text length " << r.str.length() << "\n";
+                      jointLog->info("offset is {}, which is greater than text length {}",
+                              l, r.str.length());
                   }
                   offsets.push_back(l);
                   totOutput++;
@@ -914,9 +982,13 @@ Mince
               for (size_t j = 1; j < sbsize; ++j) {
                   int diff = (offsets[j] - offsets[j-1]);
                   if (diff < 0) {
-                      std::cerr << "offsets[" << j << "] = " << +offsets[j]
-                                << "offsets[" << j-1 << "] = " << +offsets[j-1] << "\n";
-                      std::exit(1);
+                      fmt::MemoryWriter w;
+                      w.write("offsets[{}] = {}"
+                              "offsets[{}] = {}",
+                              j, +offsets[j],
+                              j-1, +offsets[j-1]);
+                      jointLog->critical(w.str());
+                      throw std::logic_error(w.str());
                   }
                   deltas.push_back(static_cast<uint8_t>(diff));
               }
@@ -927,12 +999,31 @@ Mince
           totBuckets++;
       }
 
+      outfileSeqs << redi::peof;
+      outfileOffsets << redi::peof;
+      outfileNLocs << redi::peof;
+
+      jointLog->info("Done with calls to write; waiting for files to close!");
+
       outfileSeqs.close();
       outfileOffsets.close();
       outfileNLocs.close();
       outfileFlips.Close();
-      std::cerr << "Wrote: " << totOutput << " reads, in " << totBuckets << " buckets\n";
-      LOG(INFO) << "Done writing all buckets";
+
+      // The "flips" file is small enough that it's first written
+      // uncompressed.  We call plzip on it here.
+      {
+          fmt::MemoryWriter zipCmd;
+          zipCmd.write("plzip -f -n 1 {}", outfname+".flips");
+          redi::opstream zipFlipFile(zipCmd.str());
+          if (!zipFlipFile.good()) {
+              jointLog->critical("Error compressing flip file!");
+          }
+      }
+      // done compressing flip file
+
+      jointLog->info("Wrote {} reads in {} buckets", totOutput, totBuckets);
+      jointLog->info("Done writing all buckets");
   } // end try
   catch (po::error &e) {
       std::cerr << "Exception : [" << e.what() << "]. Exiting.\n";

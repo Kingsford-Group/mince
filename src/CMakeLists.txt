@@ -41,12 +41,6 @@ ${Boost_LIBRARY_DIRS}
 ${TBB_LIBRARY_DIRS}
 )
 
-if(HAVE_LOGGER)
-	set (LOGGING_LIBS ${GAT_SOURCE_DIR}/external/install/lib/liblib_g2logger.a)
-else()
-    set (LOGGING_LIBS )
-endif()
-
 message("TBB_LIBRARIES = ${TBB_LIBRARIES}")
 message("Boost_LIBRARIES = ${Boost_LIBRARIES}")
 
@@ -86,7 +80,6 @@ target_link_libraries(mince
     pthread 
     m
     ${TBB_LIBRARIES}
-    ${LOGGING_LIBS}
     ${NON_APPLECLANG_LIBS}
 )
 
@@ -99,7 +92,6 @@ target_link_libraries(canonicalize
     pthread 
     m
     ${TBB_LIBRARIES}
-    ${LOGGING_LIBS}
     ${NON_APPLECLANG_LIBS}
 )
 
@@ -112,7 +104,6 @@ target_link_libraries(canoncmp
     pthread 
     m
     ${TBB_LIBRARIES}
-    ${LOGGING_LIBS}
     ${NON_APPLECLANG_LIBS}
 )
 
@@ -126,7 +117,6 @@ target_link_libraries(mergepairs
     pthread 
     m
     ${TBB_LIBRARIES}
-    ${LOGGING_LIBS}
     ${NON_APPLECLANG_LIBS}
 )
 

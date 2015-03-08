@@ -20,11 +20,13 @@
 #include <tbb/concurrent_unordered_map.h>
 #include <tbb/parallel_sort.h>
 
-#include "g2logworker.h"
-#include "g2log.h"
+#include "pstream.h"
+
 #include "bitfile.h"
 #include "MinceUtils.hpp"
 #include "Decoder.hpp"
+#include "spdlog/spdlog.h"
+#include "MinceOpts.hpp"
 
 
 void dumpReadToFile(std::string& r, uint64_t readNum, LibraryFormat& fmt,
@@ -52,37 +54,71 @@ void dumpReadToFile(std::string& r, uint64_t readNum, LibraryFormat& fmt,
 
 
 
-void Decoder::decode(std::string& ifname, std::string& ofname) {
+void Decoder::decode(MinceOpts& minceOpts, std::string& ifname, std::string& ofname) {
     using my_mer = jellyfish::mer_dna_ns::mer_base_static<uint64_t, 1>;
+    /*
     std::ifstream seqFile;
     std::ifstream offFile;
     std::ifstream nsFile;
+    */
     bit_file_c flipFile;
 
     namespace bfs = boost::filesystem;
 
-    bfs::path seqPath = ifname+".seqs";
-    bfs::path offPath = ifname+".offs";
-    bfs::path nsPath = ifname+".nlocs";
-    bfs::path flipPath = ifname+".flips";
+    bfs::path seqPath = ifname+".seqs.lz";
+    bfs::path offPath = ifname+".offs.lz";
+    bfs::path nsPath = ifname+".nlocs.lz";
+    bfs::path flipPath = ifname+".flips.lz";
+
+    auto jointLog = minceOpts.jointLog;
 
     if (!bfs::exists(seqPath) or !bfs::exists(offPath) or !bfs::exists(nsPath)) {
-	std::string errstr = "Couldn't find mince sequence [.seqs] or offset [.offs] file or n's file [.nlocs]";
-	std::cerr << errstr << "\n";
-	LOG(FATAL) << errstr;
+        std::string errstr = "Couldn't find mince sequence [.seqs] or offset [.offs] file or n's file [.nlocs]";
+        jointLog->critical(errstr);
+        throw std::logic_error(errstr);
     }
 
-    seqFile.open(seqPath.string(), std::ios::in | std::ios::binary);
-    offFile.open(offPath.string(), std::ios::in | std::ios::binary);
-    nsFile.open(nsPath.string(), std::ios::in | std::ios::binary);
+    fmt::MemoryWriter w;
+    w.write("plzip -d -c -n {} {}", minceOpts.numThreads - 3, seqPath.string());
+    jointLog->info("reading seq buffer with command {}", w.str());
+    redi::ipstream seqFile(w.str());
+    w.clear();
+
+    w.write("plzip -d -c -n 1 {}", offPath.string());
+    jointLog->info("reading offset buffer with command {}", w.str());
+    redi::ipstream offFile(w.str());
+    w.clear();
+
+    w.write("plzip -d -c -n 1 {}", nsPath.string());
+    jointLog->info("reading Ns buffer with command {}", w.str());
+    redi::ipstream nsFile(w.str());
+    w.clear();
+
+
+    //seqFile.open(seqPath.string(), std::ios::in | std::ios::binary);
+    //offFile.open(offPath.string(), std::ios::in | std::ios::binary);
+    //nsFile.open(nsPath.string(), std::ios::in | std::ios::binary);
 
     bool haveFlipFile{true};
     if (!bfs::exists(flipPath)) {
-	LOG(INFO) << "no flip file found";
-	haveFlipFile = false;
+        jointLog->info("no flip file found");
+	    haveFlipFile = false;
     } else {
-	LOG(INFO) << "opened flip file";
-	flipFile.Open(flipPath.c_str(), BF_READ);
+        // The "flips" file is small enough that it's first written
+        // uncompressed.  We call plzip on it here.
+        {
+            fmt::MemoryWriter unzipCmd;
+            unzipCmd.write("plzip -d -k -n 1 {}", flipPath.string());
+            redi::opstream zipFlipFile(unzipCmd.str());
+            if (!zipFlipFile.good()) {
+                jointLog->critical("Error decompressing flip file!");
+                throw std::logic_error("Error decompressing flip file!");
+            }
+        }
+
+        // done compressing flip file
+    	flipFile.Open(flipPath.c_str(), BF_READ);
+        jointLog->info("opened flip file {}", flipPath);
     }
 
     uint8_t rltypeID{0};
@@ -121,7 +157,7 @@ void Decoder::decode(std::string& ifname, std::string& ofname) {
 
     class NPatch {
 	public:
-	void getNext(std::ifstream& ifile) {
+	void getNext(redi::ipstream& ifile) {
 		ifile.read(reinterpret_cast<char*>(&id), sizeof(id));
 		if (ifile.good()) {
 			uint8_t nn{0};
@@ -141,13 +177,9 @@ void Decoder::decode(std::string& ifname, std::string& ofname) {
 	std::vector<uint8_t> nlocs;
     };
 
-    std::cerr << "kl = " << +kl << "\n";
-    std::cerr << "readLength = " << readLength << "\n";
-    std::cerr << "num onsies = " << numOnsies << "\n";
-
-    LOG(INFO) << "bucket string length = " << +kl;
-    LOG(INFO) << "effective read length = " << effectiveReadLength;
-    LOG(INFO) << "reading " << numOnsies << " onsies";
+    jointLog->info("bucket string length = {}", +kl);
+    jointLog->info("effective read length = {}", readLength);
+    jointLog->info("num onsies = ", numOnsies);
 
     NPatch np;
     np.getNext(nsFile);
@@ -164,13 +196,13 @@ void Decoder::decode(std::string& ifname, std::string& ofname) {
         dumpReadToFile(recon, j, libFmt, readLength, ofile1, ofile2);
     }
 
-    std::cerr << "done with onsies\n";
+    jointLog->info("done with onsies.");
     delete onsieRead;
 
     uint32_t maxBucketSize{256};
 
     effectiveReadLength = std::ceil((readLength - kl) / 4.0);
-    LOG(INFO) << "reset effective read length to " << effectiveReadLength;
+    jointLog->info("reset effective read length to {}", effectiveReadLength);
 
     std::vector<std::string> reads(maxBucketSize, std::string(effectiveReadLength, 'X'));
     std::vector<uint32_t> offsets(maxBucketSize, 0);
@@ -187,117 +219,112 @@ void Decoder::decode(std::string& ifname, std::string& ofname) {
         seqFile.read(reinterpret_cast<char*>(&bucketStringLength), sizeof(bucketStringLength));
 	if (!seqFile.good()) { break; }
 
-	// Read the actual bucket string
-	if (bucketStringLength > 0) {
-		LOG(INFO) << "bucket has new core of length " << +bucketStringLength;
-        	numBytes = std::ceil(bucketStringLength / 4.0);
-		std::vector<uint8_t> coreStrBytes(numBytes);
-		seqFile.read(reinterpret_cast<char*>(&coreStrBytes[0]), numBytes);
-		bucketString = mince::utils::twoBitDecode(&coreStrBytes.front(), bucketStringLength);
-		LOG(INFO) << "new core is " << bucketString;
-	} else { // 0 indicates that the current bucket has the same core string (and therefore the same length)
-		LOG(INFO) << "bucket shares same core as previous bucket";
-		LOG(INFO) << "repeated core is " << bucketString;
-		bucketStringLength = prevBucketStringLength;
-	}
+    // Read the actual bucket string
+    if (bucketStringLength > 0) {
+        jointLog->debug("bucket has new core of length {}", +bucketStringLength);
+        numBytes = std::ceil(bucketStringLength / 4.0);
 
-        // Read the bucket size
-        seqFile.read(reinterpret_cast<char*>(&bsize), sizeof(bsize));
+        std::vector<uint8_t> coreStrBytes(numBytes);
+        seqFile.read(reinterpret_cast<char*>(&coreStrBytes[0]), numBytes);
+        bucketString = mince::utils::twoBitDecode(&coreStrBytes.front(), bucketStringLength);
+        jointLog->debug("new core is {}", bucketString);
+    } else { // 0 indicates that the current bucket has the same core string (and therefore the same length)
+        jointLog->debug("bucket shares same core as previous bucket");
+        jointLog->debug("repeated core is {}", bucketString);
+        bucketStringLength = prevBucketStringLength;
+    }
 
-        subBucketSize = static_cast<uint32_t>(bsize) + 1;
+    // Read the bucket size
+    seqFile.read(reinterpret_cast<char*>(&bsize), sizeof(bsize));
 
-	LOG(INFO) << "decoding bucket of size " << subBucketSize;
-	LOG(INFO) << "bucket string length " << +bucketStringLength;
-        //std::cerr << "bucket size = " << subBucketSize << "\n";
+    subBucketSize = static_cast<uint32_t>(bsize) + 1;
 
-        effectiveReadLength = std::ceil((readLength - bucketStringLength) / 4.0);
+    jointLog->debug("decoding bucket of size {}", subBucketSize);
+    jointLog->debug("bucket string length {}", +bucketStringLength);
 
-        size_t subBucketCount{0};
-        for (subBucketCount = 0; subBucketCount < subBucketSize; ++subBucketCount) {
-            //std::cerr << "next read\n";
-            //std::cerr << "effectiveReadLength = " << effectiveReadLength << "\n";
-            reads[subBucketCount].resize(effectiveReadLength, 'X');
-            seqFile.read(reinterpret_cast<char*>(&reads[subBucketCount][0]), effectiveReadLength);
-        }
+    effectiveReadLength = std::ceil((readLength - bucketStringLength) / 4.0);
 
-        for (subBucketCount = 0; subBucketCount < subBucketSize; ++subBucketCount) {
-            offFile.read(reinterpret_cast<char*>(&offsets[subBucketCount]), sizeof(uint8_t));
-        }
-        // Transform offset deltas into absolute offsets
-        uint8_t base = offsets.front();
-        for (size_t i = 1; i < subBucketSize; ++i) {
-            offsets[i] = base + offsets[i];
-            base = offsets[i];
-        }
+    size_t subBucketCount{0};
+    for (subBucketCount = 0; subBucketCount < subBucketSize; ++subBucketCount) {
+        //std::cerr << "next read\n";
+        //std::cerr << "effectiveReadLength = " << effectiveReadLength << "\n";
+        reads[subBucketCount].resize(effectiveReadLength, 'X');
+        seqFile.read(reinterpret_cast<char*>(&reads[subBucketCount][0]), effectiveReadLength);
+    }
 
-        for (subBucketCount = 0; subBucketCount < subBucketSize; ++subBucketCount) {
-            const char* read = reads[subBucketCount].c_str();
-            uint32_t offset = offsets[subBucketCount];
+    for (subBucketCount = 0; subBucketCount < subBucketSize; ++subBucketCount) {
+        offFile.read(reinterpret_cast<char*>(&offsets[subBucketCount]), sizeof(uint8_t));
+    }
+    // Transform offset deltas into absolute offsets
+    uint8_t base = offsets.front();
+    for (size_t i = 1; i < subBucketSize; ++i) {
+        offsets[i] = base + offsets[i];
+        base = offsets[i];
+    }
 
-                /*
-                std::cerr << "HERE6\n";
-                std::cerr << "bucket size = " << +subBucketSize << "\n";
-                std::cerr << "bucket-string = " << bucketString << "\n";
-                std::cerr << "bucket-string length = " << +bucketStringLength << "\n";
-                */
-            std::string s = mince::utils::twoBitDecode(reinterpret_cast<const uint8_t*>(read), readLength - bucketStringLength);
+    for (subBucketCount = 0; subBucketCount < subBucketSize; ++subBucketCount) {
+        const char* read = reads[subBucketCount].c_str();
+        uint32_t offset = offsets[subBucketCount];
 
-                /*
-                std::cerr << "[" << s << "]( " << offset << ")\n";
-                std::cerr << "i = " << i << "\n";
-                std::cerr << "HERE7\n";
-                */
+        std::string s = mince::utils::twoBitDecode(reinterpret_cast<const uint8_t*>(read), readLength - bucketStringLength);
 
-            if (offset <= s.length()) {
-                //std::cerr << "HERE8\n";
-              std::string recon = mince::utils::unpermute(s, bucketString, offset);
+        if (offset <= s.length()) {
+            std::string recon = mince::utils::unpermute(s, bucketString, offset);
 
-	      if (np.id == numOnsies + i) {
-		      np.apply(recon);
-		      np.getNext(nsFile);
-	      }
-
-	      if (recon.length() < readLength) {
-                  std::cerr << "recon = " << recon << "\n";
-                  std::cerr << "bucket string = " << bucketString << "\n";
-                  std::cerr << "offset = " << +offset << "\n";
-                  std::cerr << "s = " << s << "\n";
-                  std::exit(1);
-              }
-
-    	      bool doFlip = haveFlipFile ? flipFile.GetBit() : 0;
-	          if (doFlip) { mince::utils::reverseComplement(recon); }
-
-              dumpReadToFile(recon, numOnsies + i, libFmt, readLength,
-                             ofile1, ofile2);
-
-                //std::cerr << "recon = " << recon << "\n";
-            } else {
-                //dumpReadToFile(recon, numOnsies + i, libFmt, readLength,
-                //               ofile1, ofile2);
-                std::cerr << ">" << numOnsies + i << "\nERROR RECONSTRUCTING THIS READ" << std::endl;
-                std::cerr << "s.length() = " << s.length() << "\n";
-                std::cerr << "offset = " << +offset << "\n";
-                std::cerr << "HERE!!!!!!!!!\n";
-                std::exit(1);
+            if (np.id == numOnsies + i) {
+                np.apply(recon);
+                np.getNext(nsFile);
             }
 
-            ++i;
-            if (i % 100000 == 0) {
-                std::cerr << "\r\rwrote read " << i;
+            if (recon.length() < readLength) {
+                fmt::MemoryWriter w;
+                w.write("recon = {}", recon);
+                w.write("bucket string = {}", bucketString);
+                w.write("offset = {}", +offset);
+                w.write("s = {}", s);
+                jointLog->critical(w.str());
+                throw std::logic_error(w.str());
             }
+
+            bool doFlip = haveFlipFile ? flipFile.GetBit() : 0;
+            if (doFlip) { mince::utils::reverseComplement(recon); }
+
+            dumpReadToFile(recon, numOnsies + i, libFmt, readLength,
+                    ofile1, ofile2);
+
+        } else {
+            fmt::MemoryWriter w;
+            w.write("ERROR RECONSTRUCTING A READ");
+            w.write("> {}", numOnsies + i);
+            w.write("s.length() = {}", s.length());
+            w.write("offset = {}", +offset);
+            jointLog->critical(w.str());
+            throw std::logic_error(w.str());
         }
+
+        ++i;
+        if (i % 100000 == 0) {
+            std::cerr << "\r\rwrote read " << i;
+        }
+    }
     }
     if (seqFile.eof()) {
-        std::cerr << "\nreached EOF in seq\n";
+        jointLog->info("reached EOF in seq");
     }
     if (offFile.eof()) {
-        std::cerr << "\nreached EOF in offs\n";
+        jointLog->info("reached EOF in offs");
     }
 
     seqFile.close();
     offFile.close();
-    if (haveFlipFile) { flipFile.Close(); }
+    if (haveFlipFile) {
+        flipFile.Close();
+        // Delete the temporarily decompressed flip file
+        if (bfs::exists(ifname+".flips") and
+            bfs::exists(ifname+".flips.lz")) {
+            bfs::remove(ifname+".flips");
+        }
+    }
     ofile1.close();
     if (libFmt.type == ReadType::PAIRED_END) {
         ofile2.close();

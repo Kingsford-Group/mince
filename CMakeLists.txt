@@ -39,7 +39,6 @@ if (APPLE)
     # In order to "think different", we also have to use non-standard suffixes
     # for our shared libraries
     set(SHARED_LIB_EXTENSION "dylib")
-    #set(HAVE_LOGGER FALSE)
 else()
     # We're in sane linux world
    set (SHARED_LIB_EXTENSION "so")
@@ -346,23 +345,6 @@ endif()
 
 
 message("TBB_LIBRARIES = ${TBB_LIBRARIES}")
-
-if(HAVE_LOGGER)
-message("Build system will compile g2log logging library")
-message("==================================================================")
-ExternalProject_Add(libg2log
-  DOWNLOAD_DIR ${CMAKE_CURRENT_SOURCE_DIR}/external
-  URL http://www.cs.cmu.edu/~robp/files/g2log.tar.gz
-  SOURCE_DIR ${CMAKE_CURRENT_SOURCE_DIR}/external/g2log
-  INSTALL_DIR ${CMAKE_CURRENT_SOURCE_DIR}/external/install
-  BINARY_DIR ${CMAKE_CURRENT_SOURCE_DIR}/external/g2log/build
-  #UPDATE_COMMAND sh -c "mkdir -p ${CMAKE_CURRENT_SOURCE_DIR}/external/g2log/g2log/build"
-  UPDATE_COMMAND sh -c "mv ${CMAKE_CURRENT_SOURCE_DIR}/external/g2log/g2log/* ${CMAKE_CURRENT_SOURCE_DIR}/external/g2log && mkdir ${CMAKE_CURRENT_SOURCE_DIR}/external/g2log/build"
-  CMAKE_ARGS -DCMAKE_INSTALL_PREFIX=${CMAKE_CURRENT_SOURCE_DIR}/external/install
-  BUILD_COMMAND sh -c "make"
-  INSTALL_COMMAND sh -c "mkdir -p <INSTALL_DIR>/include <INSTALL_DIR>/lib && cp <SOURCE_DIR>/src/*.h <INSTALL_DIR>/include/ && cp <BINARY_DIR>/*.a <INSTALL_DIR>/lib/"
-)
-endif()
 
 ###
 #
