@@ -740,7 +740,7 @@ int main(int argc, char *argv[]) {
       outfileSeqs.open(outfname+".seqs", std::ios::out | std::ios::binary);
       */
       fmt::MemoryWriter w;
-      w.write("plzip -o {} -f -n {} -", minceOpts.numThreads - 3, outfname+".seqs");
+      w.write("plzip -o {} -f -n {} -", outfname+".seqs", minceOpts.numThreads - 3);
       jointLog->info("writing seq buffer with command {}", w.str());
       redi::opstream outfileSeqs(w.str());
       w.clear();
