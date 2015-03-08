@@ -35,9 +35,12 @@ where BASENAME is the basename for the file to decompress (same as the OUTBASENA
 The reads will NOT be in the same order as in the original file.
 
 Other Options
-
+```
       -v [ --version ]           print version information
       -h [ --help ]              print help message
+      -p [ --threads ] arg (=20) number of concurrent threads to use for
+                                 compression / decompression; the minimum value is
+                                 4.
       -l [ --libtype ] arg       library format string [only for encoding]
       -1 [ --mates1 ] arg        mate file 1 [only for encoding]
       -2 [ --mates2 ] arg        mate file 2 [only for encoding]
@@ -49,8 +52,13 @@ Other Options
                                  bucketing
       -e [ --encode ]            encode the input file
       -d [ --decode ]            decode the input file
+```
 
-The specification of the library format string is the same as is expected in the sailfish and salmon software, and is described in detail here. A visual depiction of the different possible paired-end library types is available here.
+The specification of the library format string is the same as is expected in
+the sailfish and salmon software, and is described in detail
+[here](http://sailfish.readthedocs.org/en/develop/salmon.html#what-s-this-libtype)
+. A visual depiction of the different possible paired-end library types is
+available [here](http://sailfish.readthedocs.org/en/develop/library_type.html).
 
 Building from sources
 =====================
@@ -61,7 +69,7 @@ Building MINCE requires:
 
 1. A C++11 compatible compiler (it has been tested with GCC and clang)
 2. Intel TBB library
-3. PLZip library
+3. PLZip program
 4. Boost (Mince can download this if you don't have it)
 
 ### How to build
