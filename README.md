@@ -1,11 +1,11 @@
-MINCE
+Mince
 =====
 
-MINCE is a technique for encoding collections of short reads. The MINCE software is written in C++11 and is availble under an open-source license.
+Mince is a technique for encoding collections of short reads. The Mince software is written in C++11 and is availble under an open-source license.
 
 If you use this software, please cite:
 
-Carl Kingsford and Rob Patro. Data-dependent Bucketing Improves Reference-free Compression of Sequencing Reads. Under review (2014).
+* Carl Kingsford and Rob Patro. Data-dependent Bucketing Improves Reference-free Compression of Sequencing Reads. Under review (2014).
 
 Installation
 ============
@@ -24,7 +24,7 @@ or with a paired-end library
 
         mince -e -l IU -1 IN1.fastq -2 IN2.fastq -o OUTBASENAME
     
-MINCE will create several output files.
+Mince will create several output files.
 
 To decompress:
 
@@ -57,7 +57,7 @@ Building from sources
 
 ### Dependencies
 
-Building MINCE requires:
+Building Mince requires:
 
 1. A C++11 compatible compiler (it has been tested with GCC and clang)
 2. Intel TBB library
@@ -66,7 +66,7 @@ Building MINCE requires:
 
 ### How to build
 
-If you want to build MINCE from source, follow these instructions. This is
+If you want to build Mince from source, follow these instructions. This is
 fairly easy if you have the right dependencies.
 
 First, Mince uses CMAKE to configure the build. To start, download the latest
@@ -78,7 +78,7 @@ Next, create a directory inside the mince directory:
     mkdir build
     cd build
 
-Now, run cmake to configure MINCE for your system:
+Now, run cmake to configure Mince for your system:
 
     cmake [FLAGS] ..
 
@@ -100,7 +100,7 @@ downloaded.  You should replace [FLAGS] as described below.
   
 * -DCMAKE\_INSTALL_PREFIX= -- is the directory to which you wish Sailfish to be installed. If you don't specify this option, it will be installed locally in the top-level directory (i.e. the directory directly above "build").
 
-MINCE may build if you omit any flags, but probably you will have to specify
+Mince may build if you omit any flags, but probably you will have to specify
 either the -DFETCH\_BOOST (if you don't have boost installed), or -DBOOST\_ROOT
 (if you have boost installed someplace non-standard). 
 
