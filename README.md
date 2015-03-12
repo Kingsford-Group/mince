@@ -70,16 +70,17 @@ Building from sources
 Building Mince requires:
 
 1. A C++11 compatible compiler (it has been tested with GCC and clang)
-2. Intel TBB library
-3. PLZip program
-4. Boost (Mince can download this if you don't have it)
+2. The [CMake](http://www.cmake.org) build system 
+3. Intel TBB library (The build system can download this if you don't have it)
+4. PLZip program
+5. Boost (The build system can download this if you don't have it)
 
 ### How to build
 
 If you want to build Mince from source, follow these instructions. This is
 fairly easy if you have the right dependencies.
 
-First, Mince uses CMAKE to configure the build. To start, download the latest
+First, Mince uses CMake to configure the build. To start, download the latest
 source code (either using git or by downloading the source release from
 github). 
 
