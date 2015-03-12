@@ -28,7 +28,7 @@ install:
 script:
     - mkdir build
     - cd build
-    - cmake -DNO_RTM=TRUE-DFETCH_BOOST=TRUE ..
+    - cmake -DNO_RTM=TRUE -DFETCH_BOOST=TRUE ..
     - travis_wait 20 make mince
     - travis_wait make install
 
