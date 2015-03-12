@@ -26,7 +26,7 @@ set (BOOST_CXX_FLAGS "-Wno-deprecated-register -std=c++11")
 SET(CMAKE_FIND_LIBRARY_SUFFIXES .a ${CMAKE_FIND_LIBRARY_SUFFIXES})
 
 ## Set the standard required compile flags
-set (CMAKE_CXX_FLAGS "-g -funroll-loops -fPIC -O3 -DHAVE_ANSI_TERM -DHAVE_SSTREAM -DHAVE_CONFIG_H -Wall -std=c++11 -Wno-unused-local-typedefs")
+set (CMAKE_CXX_FLAGS "-funroll-loops -fPIC -O3 -DHAVE_ANSI_TERM -DHAVE_SSTREAM -DHAVE_CONFIG_H -Wall -std=c++11 -Wno-unused-local-typedefs")
 
 ##
 # OSX is strange (some might say, stupid in this regard).  Deal with it's quirkines here.
@@ -128,6 +128,13 @@ set (Boost_USE_STATIC_RUNTIME OFF)
 ##
 set(Boost_ADDITIONAL_VERSIONS "1.54" "1.54.0")
 find_package(Boost 1.54.0 COMPONENTS iostreams filesystem system thread timer program_options serialization)
+
+## TODO: Figure out how to detect this automatically
+# If the "assembler" is too old, tell TBB not to compile
+# with -mrtm
+if (NO_RTM)
+    set (TBB_CXXFLAGS "-mno-rtm")
+endif()
 
 include(ExternalProject)
 
