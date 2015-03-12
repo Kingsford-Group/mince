@@ -24,6 +24,7 @@
 #include "pstream.h"
 
 #include "bitfile.h"
+#include "MinceConfig.hpp"
 #include "MinceUtils.hpp"
 #include "FindPartition.hpp"
 #include "Decoder.hpp"
@@ -447,7 +448,13 @@ int main(int argc, char *argv[]) {
 )";
           std::cerr << hstring << "\n";
           std::cerr << generic << "\n";
-          std::exit(1);
+          std::cerr << "Mince v" << mince::version << "\n";
+          std::exit(0);
+      }
+
+      if (vm.count("version")) {
+          std::cout << "Mince version : " << mince::version << "\n";
+          std::exit(0);
       }
 
       po::notify(vm);
