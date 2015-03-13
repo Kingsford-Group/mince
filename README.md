@@ -1,4 +1,3 @@
-[![Build Status](https://travis-ci.org/Kingsford-Group/mince.svg?branch=master)](https://travis-ci.org/Kingsford-Group/mince)
 
 Mince
 =====
