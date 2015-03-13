@@ -135,6 +135,8 @@ if (NO_RTM)
     set (TBB_CXXFLAGS "-mno-rtm")
 endif()
 
+add_custom_target(externalProjectTarget)
+
 include(ExternalProject)
 
 ##
@@ -171,7 +173,7 @@ elseif(FETCH_BOOST)
         COMMAND ${CMAKE_COMMAND} ${CMAKE_CURRENT_SOURCE_DIR} -DBOOST_WILL_RECONFUGRE=FALSE -DBOOST_RECONFIGURE=TRUE 
         DEPENDEES install
     )
-    add_dependencies(minceutils libboost)
+    add_dependencies(externalProjectTarget libboost)
 endif()
 
 ##
@@ -207,9 +209,6 @@ if (BOOST_RECONFIGURE)
     find_package(Boost 1.55.0 COMPONENTS iostreams filesystem system thread timer program_options)
 endif()
 
-# Recurse into Sailfish source directory
-add_subdirectory ( src )
-
 message("BOOST INCLUDE DIR = ${Boost_INCLUDE_DIR}")
 message("BOOST INCLUDE DIRS = ${Boost_INCLUDE_DIRS}")
 message("BOOST LIB DIR = ${Boost_LIBRARY_DIRS}")
@@ -232,7 +231,7 @@ ExternalProject_Add(libcereal
     BUILD_COMMAND ""
     INSTALL_COMMAND sh -c "mkdir -p <INSTALL_DIR>/include && cp -r <SOURCE_DIR>/include/cereal <INSTALL_DIR>/include"
 )
-add_dependencies(minceutils libcereal)
+add_dependencies(externalProjectTarget libcereal)
 
 message("Build system will fetch and build Jellyfish")
 message("==================================================================")
@@ -248,7 +247,7 @@ ExternalProject_Add(libjellyfish
                     cp config.h <INSTALL_DIR>/include/jellyfish-2.1.3/jellyfish/ &&
                     cp config.h <INSTALL_DIR>/include/
 )
-add_dependencies(minceutils libjellyfish)
+add_dependencies(externalProjectTarget libjellyfish)
 
 find_package(TBB)
 ##
@@ -292,7 +291,7 @@ if(NOT TBB_FOUND)
         COMMAND ${CMAKE_COMMAND} ${CMAKE_CURRENT_SOURCE_DIR} ${RECONFIG_FLAGS}
         DEPENDEES install
         )
-    add_dependencies(minceutils libtbb)
+    add_dependencies(externalProjectTarget libtbb)
 endif()
 ##
 # If we're fetching tbb, we need to have dummy paths for these variables
@@ -338,6 +337,9 @@ set (CPACK_SOURCE_IGNORE_FILES
 ".git/")
 
 message("CPACK_SOURCE_IGNORE_FILES = ${CPACK_SOURCE_IGNORE_FILES}")
+
+# Recurse into Sailfish source directory
+add_subdirectory ( src )
 
 # build a CPack driven installer package
 include (CPack)
