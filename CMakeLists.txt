@@ -135,6 +135,9 @@ if (NO_RTM)
     set (TBB_CXXFLAGS "-mno-rtm")
 endif()
 
+execute_process(COMMAND make -p ${GAT_SOURCE_DIR}/external/install)
+execute_process(COMMAND make -p ${GAT_SOURCE_DIR}/external/install/include)
+execute_process(COMMAND make -p ${GAT_SOURCE_DIR}/external/install/lib)
 add_custom_target(externalProjectTarget)
 
 include(ExternalProject)
