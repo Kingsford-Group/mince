@@ -60,8 +60,8 @@ set(CMAKE_BUILD_WITH_INSTALL_RPATH TRUE)
 add_library(minceutils STATIC MinceUtils.cpp LibraryFormat.cpp bitfile.cpp)
 
 # Build the mince executable
-add_dependencies(mince minceutils)
 add_executable(mince ${MINCE_SRCS})
+add_dependencies(mince minceutils)
 
 # Build the canonicalize executable
 add_executable(canonicalize ${CANONICALIZE_SRCS})
@@ -80,7 +80,8 @@ target_link_libraries(mince
     ${GAT_SOURCE_DIR}/external/install/lib/libjellyfish-2.0.a 
     pthread 
     m
-    ${TBB_LIBRARIES}
+    tbb
+    tbbmalloc
     ${NON_APPLECLANG_LIBS}
 )
 
@@ -92,7 +93,8 @@ target_link_libraries(canonicalize
     ${GAT_SOURCE_DIR}/external/install/lib/libjellyfish-2.0.a 
     pthread 
     m
-    ${TBB_LIBRARIES}
+    tbb
+    tbbmalloc
     ${NON_APPLECLANG_LIBS}
 )
 
@@ -104,7 +106,8 @@ target_link_libraries(canoncmp
     ${GAT_SOURCE_DIR}/external/install/lib/libjellyfish-2.0.a 
     pthread 
     m
-    ${TBB_LIBRARIES}
+    tbb 
+    tbbmalloc
     ${NON_APPLECLANG_LIBS}
 )
 
@@ -117,7 +120,8 @@ target_link_libraries(mergepairs
     ${GAT_SOURCE_DIR}/external/install/lib/libjellyfish-2.0.a 
     pthread 
     m
-    ${TBB_LIBRARIES}
+    tbb
+    tbbmalloc
     ${NON_APPLECLANG_LIBS}
 )
 

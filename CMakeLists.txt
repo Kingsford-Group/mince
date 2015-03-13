@@ -135,6 +135,9 @@ if (NO_RTM)
     set (TBB_CXXFLAGS "-mno-rtm")
 endif()
 
+# Recurse into Sailfish source directory
+add_subdirectory ( src )
+
 include(ExternalProject)
 
 ##
@@ -297,10 +300,10 @@ endif()
 if(TBB_WILL_RECONFIGURE)
     set(TBB_INCLUDE_DIRS ${CMAKE_CURRENT_SOURCE_DIR}/external/install/include)
     set(TBB_LIBRARY_DIRS ${CMAKE_CURRENT_SOURCE_DIR}/external/install/lib)
-    #set(TBB_LIBRARIES tbb tbbmalloc)
-    set(TBB_LIBRARIES ${CMAKE_CURRENT_SOURCE_DIR}/external/install/lib/libtbb.${SHARED_LIB_EXTENSION}
-        ${CMAKE_CURRENT_SOURCE_DIR}/external/install/lib/libtbbmalloc.${SHARED_LIB_EXTENSION}
-        )
+    set(TBB_LIBRARIES tbb tbbmalloc)
+    #set(TBB_LIBRARIES ${CMAKE_CURRENT_SOURCE_DIR}/external/install/lib/libtbb.${SHARED_LIB_EXTENSION}
+    #    ${CMAKE_CURRENT_SOURCE_DIR}/external/install/lib/libtbbmalloc.${SHARED_LIB_EXTENSION}
+    #    )
 endif()
 ##
 # Similar to the Boost trick above, the libtbb reconfigure should force this code
@@ -334,9 +337,6 @@ set (CPACK_SOURCE_IGNORE_FILES
 ".git/")
 
 message("CPACK_SOURCE_IGNORE_FILES = ${CPACK_SOURCE_IGNORE_FILES}")
-
-# Recurse into Sailfish source directory
-add_subdirectory ( src )
 
 # build a CPack driven installer package
 include (CPack)
