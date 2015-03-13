@@ -9,9 +9,9 @@
 #include <mutex>
 #include <fstream>
 
-#include <jellyfish/err.hpp>
-#include <jellyfish/cooperative_pool2.hpp>
-#include <jellyfish/cpp_array.hpp>
+#include "jellyfish/err.hpp"
+#include "jellyfish/cooperative_pool2.hpp"
+#include "jellyfish/cpp_array.hpp"
 
 struct header_sequence_qual {
   std::string header;

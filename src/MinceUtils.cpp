@@ -1,7 +1,7 @@
 #include <exception>
 #include <sstream>
 
-#include <jellyfish/mer_dna.hpp>
+#include "jellyfish/mer_dna.hpp"
 
 #include "MinceUtils.hpp"
 

@@ -10,7 +10,7 @@
 
 #include <boost/dynamic_bitset.hpp>
 
-#include <jellyfish/mer_dna.hpp>
+#include "jellyfish/mer_dna.hpp"
 
 extern "C" {
     #include "bloom.h"
@@ -31,13 +31,13 @@ public:
 
 protected:
    void convert_to_bs();
-          
-private: 
+
+private:
        std::set<uint16_t>* s_;
        boost::dynamic_bitset<>* bs_;
        std::vector<uint16_t>* v_;
    enum { STO_SET, STO_BS, STO_VEC } storage_;
-};       
+};
 
 class BucketModel {
     public:

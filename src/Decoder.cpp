@@ -13,9 +13,9 @@
 #include <boost/program_options.hpp>
 #include <boost/filesystem.hpp>
 
-#include <jellyfish/mer_dna.hpp>
-#include <jellyfish/stream_manager.hpp>
-#include <jellyfish/whole_sequence_parser.hpp>
+#include "jellyfish/mer_dna.hpp"
+#include "jellyfish/stream_manager.hpp"
+#include "jellyfish/whole_sequence_parser.hpp"
 
 #include <tbb/concurrent_unordered_map.h>
 #include <tbb/parallel_sort.h>
