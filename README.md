@@ -86,13 +86,16 @@ github).
 
 Next, create a directory inside the mince directory:
 
-    mkdir build
-    cd build
+```
+    > mkdir build
+    > cd build
+```
 
 Now, run cmake to configure Mince for your system:
 
-    cmake [FLAGS] ..
-
+```
+    >  cmake [FLAGS] ..
+```
 The ".." should point to the root directory of the mince source tree that you
 downloaded.  You should replace [FLAGS] as described below.
 
@@ -117,10 +120,13 @@ either the -DFETCH\_BOOST (if you don't have boost installed), or -DBOOST\_ROOT
 
 If the cmake command completes, then you can actually build the software via:
 
-    make
+```
+    > make
+```
 
 This will produce the executables in the "src" directory under your build directory. You can copy the binaries to your MAKE\_INSTALL\_PREFIX via:
 
-    make install
-
+```
+    > make install
+```
 
