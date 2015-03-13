@@ -135,9 +135,6 @@ if (NO_RTM)
     set (TBB_CXXFLAGS "-mno-rtm")
 endif()
 
-# Recurse into Sailfish source directory
-add_subdirectory ( src )
-
 include(ExternalProject)
 
 ##
@@ -183,13 +180,6 @@ endif()
 ##
 if (BOOST_WILL_RECONFIGURE)
     message("Setting Temporary Boost paths")
-    unset(Boost_FOUND CACHE)
-    unset(Boost_INCLUDE_DIR CACHE)
-    unset(Boost_INCLUDE_DIRS CACHE)
-    unset(Boost_LIBRARY_DIRS CACHE) 
-    unset(Boost_LIBRARIES CACHE)
-    unset(BOOST_ROOT CACHE)
-    set(Boost_INCLUDE_DIR-NOTFOUND FALSE)
     set(Boost_INCLUDE_DIR ${CMAKE_CURRENT_SOURCE_DIR}/external/install/include)
     set(Boost_INCLUDE_DIRS ${CMAKE_CURRENT_SOURCE_DIR}/external/install/include)
     set(Boost_LIBRARY_DIRS ${CMAKE_CURRENT_SOURCE_DIR}/external/install/lib)        
@@ -217,6 +207,8 @@ if (BOOST_RECONFIGURE)
     find_package(Boost 1.55.0 COMPONENTS iostreams filesystem system thread timer program_options)
 endif()
 
+# Recurse into Sailfish source directory
+add_subdirectory ( src )
 
 message("BOOST INCLUDE DIR = ${Boost_INCLUDE_DIR}")
 message("BOOST INCLUDE DIRS = ${Boost_INCLUDE_DIRS}")
