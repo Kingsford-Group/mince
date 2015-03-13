@@ -143,6 +143,31 @@ add_custom_target(externalProjectTarget)
 include(ExternalProject)
 
 ##
+#  If we had to fetch Boost, the reconfigure step will re-run cmake.  The second configuration
+#  pass is executed with the BOOST_RECONFIGURE flag set. This should allow our newly
+#  installed Boost to be found by CMake.
+##
+if (BOOST_RECONFIGURE)
+    message("Executing Boost Reconfiguration")
+    unset(Boost_FOUND CACHE)
+    unset(Boost_INCLUDE_DIR CACHE)
+    unset(Boost_INCLUDE_DIRS CACHE)
+    unset(Boost_LIBRARY_DIRS CACHE) 
+    unset(Boost_LIBRARIES CACHE)
+    unset(BOOST_ROOT CACHE)
+    unset(CMAKE_PREFIX_PATH CACHE)
+    
+    set(BOOST_ROOT ${CMAKE_CURRENT_SOURCE_DIR}/external/install)
+    set(CMAKE_PREFIX_PATH ${CMAKE_CURRENT_SOURCE_DIR}/external/install)
+    set(Boost_INCLUDE_DIRS ${CMAKE_CURRENT_SOURCE_DIR}/external/install/include)
+    set(Boost_LIBRARY_DIRS ${CMAKE_CURRENT_SOURCE_DIR}/external/install/lib)
+    find_package(Boost 1.53.0 COMPONENTS filesystem system thread timer chrono program_options REQUIRED)
+    set(FETCH_BOOST FALSE)
+endif()
+
+
+
+##
 # Either inform the user of how to obtain Boost, or, if they passed in the FETCH_BOOST
 # option, go and grab it for them.
 ##
@@ -155,16 +180,24 @@ if ((NOT Boost_FOUND) AND (NOT FETCH_BOOST))
     )
 elseif(FETCH_BOOST)
     ## Let the rest of the build process know we're going to be fetching boost
-    set(BOOST_WILL_RECONFIGURE TRUE)
+    set (BOOST_LIB_SUBSET --with-atomic --with-chrono --with-container --with-date_time --with-exception 
+                          --with-filesystem --with-graph --with-graph_parallel --with-math 
+                          --with-program_options --with-system --with-thread
+                          --with-timer)
+    set (BOOST_WILL_RECONFIGURE TRUE)
+    set (FETCH_BOOST FALSE)
     message("Build system will fetch and build Boost")
     message("==================================================================")
     ExternalProject_Add(libboost
         DOWNLOAD_DIR ${CMAKE_CURRENT_SOURCE_DIR}/external
-        URL http://en.sourceforge.jp/frs/g_redir.php?m=jaist&f=%2Fboost%2Fboost%2F1.55.0%2Fboost_1_55_0.tar.gz
-        SOURCE_DIR ${CMAKE_CURRENT_SOURCE_DIR}/external/boost_1_55_0
+        DOWNLOAD_COMMAND curl -k -L http://fossies.org/linux/misc/boost_1_57_0.tar.gz -o boost_1_57_0.tar.gz && 
+                tar xzf boost_1_57_0.tar.gz
+        #URL http://downloads.sourceforge.net/project/boost/boost/1.57.0/boost_1_57_0.tar.gz
+        SOURCE_DIR ${CMAKE_CURRENT_SOURCE_DIR}/external/boost_1_57_0
         INSTALL_DIR ${CMAKE_CURRENT_SOURCE_DIR}/external/install
-        CONFIGURE_COMMAND ${CMAKE_CURRENT_SOURCE_DIR}/external/boost_1_55_0/bootstrap.sh ${BOOST_CONFIGURE_TOOLSET} --prefix=<INSTALL_DIR>
-        BUILD_COMMAND ${CMAKE_CURRENT_SOURCE_DIR}/external/boost_1_55_0/b2 ${BOOST_EXTRA_FLAGS} install
+        #PATCH_COMMAND patch -p2 < ${CMAKE_CURRENT_SOURCE_DIR}/external/boost156.patch
+	CONFIGURE_COMMAND CC=${CMAKE_C_COMPILER} CXX=${CMAKE_CXX_COMPILER} ${CMAKE_CURRENT_SOURCE_DIR}/external/boost_1_57_0/bootstrap.sh ${BOOST_CONFIGURE_TOOLSET} ${BOOST_BUILD_LIBS} --prefix=<INSTALL_DIR>
+	BUILD_COMMAND CC=${CMAKE_C_COMPILER} CXX=${CMAKE_CXX_COMPILER} ${CMAKE_CURRENT_SOURCE_DIR}/external/boost_1_57_0/b2 -d0 -j2 ${BOOST_LIB_SUBSET} toolset=${BOOST_TOOLSET} ${BOOST_EXTRA_FLAGS} cxxflags=${BOOST_CXX_FLAGS} install
         BUILD_IN_SOURCE 1
         INSTALL_COMMAND ""
     )
@@ -172,11 +205,11 @@ elseif(FETCH_BOOST)
     ##
     # After we've installed boost, 
     ##
+    SET( RECONFIG_FLAGS ${RECONFIG_FLAGS} -DBOOST_WILL_RECONFIGURE=FALSE -DBOOST_RECONFIGURE=TRUE -DFETCH_BOOST=FALSE)
     ExternalProject_Add_Step(libboost reconfigure
-        COMMAND ${CMAKE_COMMAND} ${CMAKE_CURRENT_SOURCE_DIR} -DBOOST_WILL_RECONFUGRE=FALSE -DBOOST_RECONFIGURE=TRUE 
+        COMMAND ${CMAKE_COMMAND} ${CMAKE_CURRENT_SOURCE_DIR} ${RECONFIG_FLAGS}
         DEPENDEES install
     )
-    add_dependencies(externalProjectTarget libboost)
 endif()
 
 ##
@@ -191,31 +224,12 @@ if (BOOST_WILL_RECONFIGURE)
     set(Boost_FOUND TRUE)
 endif()
 
-##
-#  If we had to fetch Boost, the reconfigure step will re-run cmake.  The second configuration
-#  pass is executed with the BOOST_RECONFIGURE flag set. This should allow our newly
-#  installed Boost to be found by CMake.
-##
-if (BOOST_RECONFIGURE)
-    message("In Boost Reconfiguration")
-    unset(Boost_FOUND CACHE)
-    unset(Boost_INCLUDE_DIR CACHE)
-    unset(Boost_INCLUDE_DIRS CACHE)
-    unset(Boost_LIBRARY_DIRS CACHE) 
-    unset(Boost_LIBRARIES CACHE)
-    unset(BOOST_ROOT CACHE)
-    unset(CMAKE_PREFIX_PATH CACHE)
-    set(CMAKE_PREFIX_PATH ${CMAKE_CURRENT_SOURCE_DIR}/external/install)
-    set(Boost_INCLUDE_DIR ${CMAKE_CURRENT_SOURCE_DIR}/external/install/include)
-    set(Boost_INCLUDE_DIRS ${CMAKE_CURRENT_SOURCE_DIR}/external/install/include)
-    set(Boost_LIBRARY_DIRS ${CMAKE_CURRENT_SOURCE_DIR}/external/install/lib)
-    find_package(Boost 1.55.0 COMPONENTS iostreams filesystem system thread timer program_options)
-endif()
 
 message("BOOST INCLUDE DIR = ${Boost_INCLUDE_DIR}")
 message("BOOST INCLUDE DIRS = ${Boost_INCLUDE_DIRS}")
 message("BOOST LIB DIR = ${Boost_LIBRARY_DIRS}")
 message("BOOST LIBRAREIS = ${Boost_LIBRARIES}")
+
 find_package (ZLIB)
 
 set(EXTERNAL_LIBRARY_PATH $CMAKE_CURRENT_SOURCE_DIR/lib)

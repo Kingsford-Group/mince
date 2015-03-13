@@ -141,7 +141,7 @@ install(DIRECTORY
         DESTINATION ${INSTALL_LIB_DIR}
     )
 
-install(TARGETS mince canonicalize mergepairs
+install(TARGETS mince 
                 RUNTIME DESTINATION bin 
                 LIBRARY DESTINATION lib
                 ARCHIVE DESTINATION lib
