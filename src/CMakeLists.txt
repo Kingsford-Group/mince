@@ -56,8 +56,9 @@ endif()
 
 set(CMAKE_BUILD_WITH_INSTALL_RPATH TRUE)
 
-# Build the library
+# Build the library 
 add_library(minceutils STATIC MinceUtils.cpp LibraryFormat.cpp bitfile.cpp)
+add_dependencies(minceutils externalProjectTarget)
 
 # Build the mince executable
 add_executable(mince ${MINCE_SRCS})
