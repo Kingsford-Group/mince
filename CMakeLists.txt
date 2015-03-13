@@ -209,7 +209,6 @@ if (BOOST_RECONFIGURE)
 endif()
 
 
-message("BOOST INCLUDE DIR = ${Boost_INCLUDE_DIR}")
 message("BOOST INCLUDE DIRS = ${Boost_INCLUDE_DIRS}")
 message("BOOST LIB DIR = ${Boost_LIBRARY_DIRS}")
 message("BOOST LIBRAREIS = ${Boost_LIBRARIES}")
