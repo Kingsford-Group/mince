@@ -171,6 +171,7 @@ elseif(FETCH_BOOST)
         COMMAND ${CMAKE_COMMAND} ${CMAKE_CURRENT_SOURCE_DIR} -DBOOST_WILL_RECONFUGRE=FALSE -DBOOST_RECONFIGURE=TRUE 
         DEPENDEES install
     )
+    add_dependencies(minceutils libboost)
 endif()
 
 ##
@@ -227,6 +228,7 @@ ExternalProject_Add(libcereal
     BUILD_COMMAND ""
     INSTALL_COMMAND sh -c "mkdir -p <INSTALL_DIR>/include && cp -r <SOURCE_DIR>/include/cereal <INSTALL_DIR>/include"
 )
+add_dependencies(minceutils libcereal)
 
 message("Build system will fetch and build Jellyfish")
 message("==================================================================")
@@ -242,7 +244,7 @@ ExternalProject_Add(libjellyfish
                     cp config.h <INSTALL_DIR>/include/jellyfish-2.1.3/jellyfish/ &&
                     cp config.h <INSTALL_DIR>/include/
 )
-
+add_dependencies(minceutils libjellyfish)
 
 find_package(TBB)
 ##
@@ -286,6 +288,7 @@ if(NOT TBB_FOUND)
         COMMAND ${CMAKE_COMMAND} ${CMAKE_CURRENT_SOURCE_DIR} ${RECONFIG_FLAGS}
         DEPENDEES install
         )
+    add_dependencies(minceutils libtbb)
 endif()
 ##
 # If we're fetching tbb, we need to have dummy paths for these variables

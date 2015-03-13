@@ -60,6 +60,7 @@ set(CMAKE_BUILD_WITH_INSTALL_RPATH TRUE)
 add_library(minceutils STATIC MinceUtils.cpp LibraryFormat.cpp bitfile.cpp)
 
 # Build the mince executable
+add_dependencies(mince minceutils)
 add_executable(mince ${MINCE_SRCS})
 
 # Build the canonicalize executable
