@@ -116,8 +116,9 @@ void Decoder::decode(MinceOpts& minceOpts, std::string& ifname, std::string& ofn
             }
         }
 
-        // done compressing flip file
-    	flipFile.Open(flipPath.c_str(), BF_READ);
+        bfs::path uncompressedFlipPath = flipPath.stem();
+        // done decompressing flip file
+    	flipFile.Open(uncompressedFlipPath.c_str(), BF_READ);
         jointLog->info("opened flip file {}", flipPath);
     }
 

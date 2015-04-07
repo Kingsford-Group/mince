@@ -82,9 +82,9 @@ class BucketedString {
         }
 
 
-    std::string str;
     uint8_t offset;
     uint8_t rc : 1;
+    std::string str;
     std::vector<uint8_t> nlocs;
 };
 
@@ -217,7 +217,7 @@ void bucketReads(ParserT* parser, ReadLibrary& rl, std::atomic<uint64_t>* total,
                 // then it becomes the new bucket key.
                 if (cit != countMap.end()) {
                     auto dir = std::get<1>(kv.second);
-                    bool rc = dir == Direction::REVERSE;
+                    bool rc = (dir == Direction::REVERSE);
                     //auto& fvec = (dir == Direction::REVERSE) ? featVecRC : featVec;
                     /*double score;
                     if (rc) {
@@ -249,7 +249,6 @@ void bucketReads(ParserT* parser, ReadLibrary& rl, std::atomic<uint64_t>* total,
             firstOffset = std::get<0>(merOffsetMap[maxBucketKey]);
 
             std::vector<uint8_t> nlocs;
-            //std::replace(s.begin(), s.end(), 'N', 'A');
             for (uint32_t i = 0; i < s.size(); ++i) {
                 if (s[i] == 'N') {
                     nlocs.emplace_back(static_cast<uint8_t>(i));
