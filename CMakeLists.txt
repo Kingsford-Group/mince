@@ -254,7 +254,9 @@ message("Build system will fetch and build Jellyfish")
 message("==================================================================")
 ExternalProject_Add(libjellyfish
     DOWNLOAD_DIR ${CMAKE_CURRENT_SOURCE_DIR}/external
-    URL ftp://ftp.genome.umd.edu/pub/jellyfish/jellyfish-2.1.3.tar.gz
+    DOWNLOAD_COMMAND curl -k -L https://github.com/kingsfordgroup/sailfish/releases/download/v0.3.0/jellyfish-2.1.3.tar.gz -o jellyfish-2.1.3.tar.gz && 
+                     tar -xzvf jellyfish-2.1.3.tar.gz
+    #URL ftp://ftp.genome.umd.edu/pub/jellyfish/jellyfish-2.1.3.tar.gz
     SOURCE_DIR ${CMAKE_CURRENT_SOURCE_DIR}/external/jellyfish-2.1.3
     INSTALL_DIR ${CMAKE_CURRENT_SOURCE_DIR}/external/install
     CONFIGURE_COMMAND ${CMAKE_CURRENT_SOURCE_DIR}/external/jellyfish-2.1.3/configure --prefix=<INSTALL_DIR>
