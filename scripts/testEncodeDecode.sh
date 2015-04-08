@@ -9,9 +9,16 @@ if [ ${#} -eq 2 ] ; then
     $MINCE -e -r $IN -o $BN-ENC
     echo "Decompressing $BN-ENC to $BN-DEC"
     $MINCE -d -i $BN-ENC -o $BN-DEC
+    echo ""
     echo "Comparing $BN"
     grep -v ">" $BN-DEC.fa | sort > $BN-DEC-sorted.reads
     cmp $BN-sorted.reads $BN-DEC-sorted.reads
+    if [ ${?} -eq 0 ] ; then
+        echo "Looks ok; deleting files"
+        rm $BN-sorted.reads $BN-DEC-sorted.reads
+        rm $BN-ENC*.lz
+        rm $BN-DEC.fa
+    fi
 else
     IN1="$2"
     IN2="$3"
@@ -24,7 +31,14 @@ else
     $MINCE -e -l IU -1 $IN1 -2 $IN2 -o $BN-ENC
     echo "Decompressing $BN-ENC to $BN-DEC"
     $MINCE -d -i $BN-ENC -o $BN-DEC
+    echo ""
     echo "Comparing $BN"
-    paste $BN-DEC_1.fa $BN-DEC_2.fa | grep -v ">" | sort > $BN-DEC-sorted.reads
+    paste $BN-DEC1.fa $BN-DEC2.fa | grep -v ">" | sort > $BN-DEC-sorted.reads
     cmp $BN-sorted.reads $BN-DEC-sorted.reads
+    if [ ${?} -eq 0 ] ; then
+        echo "Looks ok; deleting files"
+        rm $BN-sorted.reads $BN-DEC-sorted.reads
+        rm $BN-DEC?.fa
+        rm $BN-ENC*.lz
+    fi
 fi
