@@ -123,11 +123,16 @@ void bucketReads(ParserT* parser, ReadLibrary& rl, std::atomic<uint64_t>* total,
         CountMap& countMap,
         uint32_t bucketStringLength,
         bool noRC,
-        std::mutex& iomutex) {
+        std::mutex& iomutex,
+        MinceOpts minceOpts,
+        uint32_t* observedReadLength) {
 
     uint64_t count = 0;
     unsigned int kl{bucketStringLength};
     unsigned int cmlen{0};
+
+    uint32_t prevReadLength{0};
+    bool firstRead{true};
 
     while(true) {
         typename ParserT::job j(*parser); // Get a job from the parser: a bunch of read (at most max_read_group)
@@ -153,6 +158,29 @@ void bucketReads(ParserT* parser, ReadLibrary& rl, std::atomic<uint64_t>* total,
             minmer.polyT();
 
             size_t readLength{s.length()};
+
+            // Make sure our reads have a valid length
+            if (readLength >= bucketStringLength) {
+                // If this is our first read, record it's length
+                if (firstRead) {
+                    prevReadLength = readLength;
+                    firstRead = false;
+                } else if (prevReadLength != readLength) {
+                    // ERROR: all reads must be of the same length
+                    fmt::MemoryWriter w;
+                    w.write("Encountered variable length reads; Mince currently requires all reads to be of the same length!");
+                    minceOpts.jointLog->critical(w.str());
+                    throw std::logic_error(w.str());
+                }
+            } else {
+                // ERROR: read is too short
+                    fmt::MemoryWriter w;
+                    w.write("Encountered a read of length {}; reads should be at least as long as the length of the bucket string ({})",
+                            readLength, bucketStringLength);
+                    minceOpts.jointLog->critical(w.str());
+                    throw std::logic_error(w.str());
+            }
+
             std::map<uint32_t, std::tuple<uint8_t, Direction>> merOffsetMap;
             //std::unordered_set<uint16_t> sforward = BucketModel::readHash(s, 8, false);
             //std::unordered_set<uint16_t> sreverse = BucketModel::readHash(s, 8, true);
@@ -275,6 +303,8 @@ void bucketReads(ParserT* parser, ReadLibrary& rl, std::atomic<uint64_t>* total,
             buckets[minmer].push_back({reord, static_cast<uint8_t>(firstOffset), (maxBucketDirection == Direction::REVERSE), std::move(nlocs)});
         } // for all of the reads in this job
     } // for all jobs of this thread
+
+    *observedReadLength = prevReadLength;
 }
 
 void reassignOnsies(
@@ -548,6 +578,8 @@ int main(int argc, char *argv[]) {
       std::unique_ptr<stream_manager> streams(nullptr);
 	  std::unique_ptr<sequence_parser> sparser(nullptr);
 
+      std::vector<uint32_t> readLengths(minceOpts.numThreads, 0);
+      uint32_t readLibraryIndex{0};
       for (auto& rl : readLibraries) {
 	      if (rl.format().type == ReadType::PAIRED_END) {
 		      auto& m1 = rl.mates1();
@@ -563,13 +595,16 @@ int main(int argc, char *argv[]) {
 		      char** stop = const_cast<char**>(&(*inputs.end()));
 		      pparser.reset(new pair_parser(4 * minceOpts.numThreads, max_read_group, concurrent_file,
 				      start, stop));
+
 		      // Spawn off the read parsing threads
+              size_t rlOffset = minceOpts.numThreads * readLibraryIndex;
 		      for(int i = 0; i < minceOpts.numThreads; ++i) {
                   threads.emplace_back(bucketReads<my_mer, pair_parser>,
                           pparser.get(), std::ref(rl), &total,
                           std::ref(totReads), std::ref(maps[i]),
                           std::ref(countMap), bucketStringLength,
-                          noRC, std::ref(iomutex));
+                          noRC, std::ref(iomutex), minceOpts,
+                          &readLengths[rlOffset + i]);
 		      }
 
 	      } else if (rl.format().type == ReadType::SINGLE_END) {
@@ -584,17 +619,18 @@ int main(int argc, char *argv[]) {
 		      sparser.reset(new sequence_parser(4 * minceOpts.numThreads, max_read_group, concurrent_file, *(streams.get())));
 
 		      // Spawn off the read parsing threads
+              size_t rlOffset = minceOpts.numThreads * readLibraryIndex;
 		      for(int i = 0; i < minceOpts.numThreads; ++i) {
                   threads.emplace_back(bucketReads<my_mer, sequence_parser>,
                           sparser.get(), std::ref(rl), &total,
                           std::ref(totReads), std::ref(maps[i]),
                           std::ref(countMap), bucketStringLength,
-                          noRC, std::ref(iomutex));
+                          noRC, std::ref(iomutex), minceOpts,
+                          &readLengths[rlOffset + i]);
 		      }
 
 	      }
-
-
+          readLibraryIndex++;
       }
 
       // Join all of the read-parsing threads
@@ -602,6 +638,18 @@ int main(int argc, char *argv[]) {
           threads[i].join();
       }
       jointLog->info("finished parsing files");
+
+      // Ensure that all reads where of the same length
+      uint32_t prevReadLength = readLengths.front();
+      for (uint32_t l : readLengths) {
+          if (l != 0 and prevReadLength != l) {
+              // ERROR: all reads must be of the same length
+              fmt::MemoryWriter w;
+              w.write("Encountered variable length reads; Mince currently requires all reads to be of the same length!");
+              minceOpts.jointLog->critical(w.str());
+              throw std::logic_error(w.str());
+          }
+      }
 
       // The union of keys from all maps
       std::set<my_mer> keys;

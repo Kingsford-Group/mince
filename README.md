@@ -35,6 +35,10 @@ where BASENAME is the basename for the file to decompress (same as the OUTBASENA
 
 The reads will NOT be in the same order as in the original file.
 
+You can compress multiple files together using standard process subsitution syntax:
+
+	mince [options] ­1 <(cat f1_1.fq f2_1.fq f3_1.fq) ­2 <(cat f1_2.fq f2_2.fq f3_2.fq)
+
 Other Options
 ```
       -v [ --version ]           print version information
