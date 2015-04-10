@@ -1,4 +1,14 @@
 #!/usr/bin/env bash
+
+#============================
+# USAGE:
+# ./testEncodeDecode.sh PATH_TO_MINCE file1.fastq [file2.fastq]
+#
+# If two files are given, they will be treated as paired-end reads
+#
+# This will report whether mince was able to encode and decode correctly
+#===========================
+
 MINCE="$1"
 
 if [ ${#} -eq 2 ] ; then
@@ -24,7 +34,7 @@ else
     IN2="$3"
     BN=`basename "$IN1" .fastq`
     paste $IN1 $IN2 \
-        | gawk 'BEGIN {n=0} {if(n++ % 4 == 1) print $1}' \
+        | gawk 'BEGIN {n=0} {if(n++ % 4 == 1) print $0}' \
         | sort > $BN-sorted.reads
 
     echo "Compressing $IN to $BN"
